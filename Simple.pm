@@ -11,7 +11,7 @@ use Template::Trivial;
 use File::Spec;
 
 use vars qw($VERSION);
-$VERSION = '1.02';
+$VERSION = '1.03';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -45,7 +45,9 @@ sub handler {
     my %lang = ();
     @LANG = grep { ! $lang{$_}++ } 
       map { $_ eq $CONFIG{'gallery_lang'} ? '' : $_ } 
-	grep { $_ } map { $_, /^([^-]+)/ } 
+	grep { $_ } map { $_, ($CONFIG{'language_strict'} 
+			       ? () 
+			       : /^([^-]+)/) }
 	  map { /^([^;]+)/ }
 	    map { lc($_) }
 	      split(',', ( $r->header_in('Accept-Language') 
@@ -107,6 +109,9 @@ sub set_defaults {
     $config{'gallery_lang'}  =
       $r->dir_config('GalleryLang')  ||
 	'en';
+    $config{'language_strict'} =
+      $r->dir_config('LanguageStrict') ||
+	'no';
     $config{'thumb_use'}     =
       $r->dir_config('ThumbUse')     ||
 	'width';
@@ -145,6 +150,8 @@ sub set_defaults {
 #	'no';
 
     ## cleanup configuration directives
+    $config{'language_strict'} = $config{'language_strict'} =~ /^(?:yes|on|true|1)$/;
+
     $config{'thumb_use'} = lc($config{'thumb_use'});
     unless( $config{'thumb_aspect'} =~ m!^[\d/\.]+$! ) {
 	$r->log_error("Illegal character in ThumbAspect: only digits, slashes, and decimal points allowed.");
@@ -193,7 +200,34 @@ sub show_gallery {
     $tmpl->define_from_string(main => <<_EOF_,
 <html>
 <head>
-<title>Photo Gallery: {GALLERY_NAME}</title>
+<title>{GALLERY_NAME}</title>
+{GALLERY_STYLE}
+</head>
+
+<body>
+{GALLERY_TITLE}
+{BREADCRUMBS}
+{OTHER_GALLERIES}
+<center>
+<table width="400">
+<tr>
+<td width="25%">{DIR_FIRST}</td><td width="25%">{DIR_PREV}</td>
+<td width="25%">{DIR_NEXT}</a><td width="25%">{DIR_LAST}</td>
+</tr>
+</table>
+
+{GALLERY}
+</center>
+<hr>
+<div class="address">
+  <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple</a>
+</div>
+</body>
+</html>
+_EOF_
+			      gallery_title    => q!!, ## was '<h2>{GALLERY_NAME}</h2>'
+			      gallery_title_empty => '',
+			      gallery_style    => <<_EOF_,
 <style type="text/css">
 <!--
   body {
@@ -224,45 +258,27 @@ sub show_gallery {
     background: none;
     color: #000000;
   }
+  .galleries {
+    font-size: x-small;
+    background: none;
+    color: #000000;
+  }
   .address {
     text-align: right;
     font-size: xx-small;
   }
 //-->
 </style>
-</head>
-
-<body>
-{GALLERY_TITLE}
-<p class="breadcrumb">This gallery: {BREADCRUMBS}</p>
-{OTHER_GALLERIES}
-<center>
-<table width="400">
-<tr>
-<td width="25%">{DIR_FIRST}</td><td width="25%">{DIR_PREV}</td>
-<td width="25%">{DIR_NEXT}</a><td width="25%">{DIR_LAST}</td>
-</tr>
-</table>
-
-{GALLERY}
-</center>
-<hr>
-<div class="address">
-  <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple</a>
-</div>
-</body>
-</html>
 _EOF_
-			      gallery_title    => q!!, ## was '<h2>{GALLERY_NAME}</h2>'
-			      gallery_title_empty => '',
 			      other_galleries  => <<_EOF_,
-<p class="breadcrumb">Other galleries within this gallery:<br>
+<p class="galleries">Other galleries within this gallery:<br>
 {DIRECTORIES}</p>
 _EOF_
 			      other_empty      => <<_EOF_,
-<p class="breadcrumb">(No other galleries within this gallery)</p>
+<p class="galleries">(No other galleries within this gallery)</p>
 _EOF_
-			      breadcrumb       => q!&nbsp;<a href="{BREADCRUMBLINK}">{BREADCRUMB}</a>&nbsp;-&gt;!,
+			      breadcrumbs      => q!<p class="breadcrumb">This gallery: {BREADCRUMB_PATH}</p>!,
+			      breadcrumb       => q!&nbsp;<a href="{BREADCRUMB_LINK}">{BREADCRUMB}</a>&nbsp;-&gt;!,
 			      deadcrumb        => q!&nbsp;{BREADCRUMB}!,
 			      homecrumb        => q!home!,
 
@@ -312,10 +328,14 @@ _EOF_
 	    if -f path($tmpl_dir, "gallery_title.txt");
 	  $tmpl->define(gallery_title_empty => "gallery_title_empty.txt")
 	    if -f path($tmpl_dir, "gallery_title_empty.txt");
+	  $tmpl->define(gallery_style    => "gallery_style.txt")
+	    if -f path($tmpl_dir, "gallery_style.txt");
 	  $tmpl->define(other_galleries  => "gallery_other.txt")
 	    if -f path($tmpl_dir, "gallery_other.txt");
 	  $tmpl->define(other_empty      => "gallery_other_empty.txt")
 	    if -f path($tmpl_dir, "gallery_other_empty.txt");
+	  $tmpl->define(breadcrumbs      => "gallery_breadcrumbs.txt")
+	    if -f path($tmpl_dir, "gallery_breadcrumbs.txt");
 	  $tmpl->define(breadcrumb       => "gallery_breadcrumb.txt")
 	    if -f path($tmpl_dir, "gallery_breadcrumb.txt");
 	  $tmpl->define(deadcrumb        => "gallery_deadcrumb.txt")
@@ -379,6 +399,7 @@ _EOF_
     my $gallery_name = get_captions($path, $dir);
     $tmpl->assign( GALLERY_NAME    => ($gallery_name ? $gallery_name : $r->uri));
     $tmpl->parse(  GALLERY_TITLE   => ( $gallery_name ? 'gallery_title' : 'gallery_title_empty' ));
+    $tmpl->parse(  GALLERY_STYLE   => 'gallery_style');
     $tmpl->parse(  ROW_START       => 'table_row_top');
     $tmpl->parse(  ROW_END         => 'table_row_bottom');
     $tmpl->parse(  ROWS            => 'table_row_top');
@@ -409,16 +430,17 @@ _EOF_
 
 	    my ($g_path, $g_dir) = $fullpath =~ m!^(.*/)([^/]+)$!; ## split fullpath into components
 	    my $g_name = get_captions($g_path, $g_dir);  ## get comment for this directory
-	    warn "BREADCRUMBLINK: $breadcrumblink\n" if $DEBUG;
+	    warn "BREADCRUMB_LINK: $breadcrumblink\n" if $DEBUG;
 	    warn "FULLPATH:       $fullpath\n" if $DEBUG;
 	    if( $crumb eq '/' ) { $tmpl->parse(  BREADCRUMB => 'homecrumb') }
 	    else                { $tmpl->assign( BREADCRUMB => ($g_name ? $g_name : $crumb)) }
-	    $tmpl->assign(BREADCRUMBLINK => $breadcrumblink);
-	    $tmpl->parse('.BREADCRUMBS' => 'breadcrumb');
+	    $tmpl->assign(BREADCRUMB_LINK => $breadcrumblink);
+	    $tmpl->parse('.BREADCRUMB_PATH' => 'breadcrumb');
 	}
 	$DEBUG=0;
 	$tmpl->assign(BREADCRUMB => ( $gallery_name ? $gallery_name : $lastcrumb));
-	$tmpl->parse('.BREADCRUMBS' => 'deadcrumb');
+	$tmpl->parse('.BREADCRUMB_PATH' => 'deadcrumb');
+	$tmpl->parse(BREADCRUMBS        => 'breadcrumbs');
     }
 
     my $row_width = 0;
@@ -671,6 +693,27 @@ sub show_file {
 <html>
 <head>
 <title>{TITLE}</title>
+{IMAGE_STYLE}
+</head>
+<body>
+<center>
+<table width="400">
+<tr align="center" valign="top">
+<td width="20%">{IMG_FIRST}</td><td width="20%">{IMG_PREV}</td>
+<td width="20%">{DIR_UP}</a>
+<td width="20%">{IMG_NEXT}</a><td width="20%">{IMG_LAST}</td>
+</tr>
+</table>
+
+<table>
+<tr><td colspan="5"><img src="{IMAGE}"></td></tr>
+<tr><td colspan="5">{LINK}{COMMENT}</td></tr>
+</table>
+</center>
+</body>
+</html>
+_EOF_
+			      image_style => <<_EOF_,
 <style type="text/css">
 <!--
   body {
@@ -699,36 +742,27 @@ sub show_file {
   }
 //-->
 </style>
-</head>
-<body>
-<center>
-<table width="400">
-<tr align="center" valign="top">
-<td width="20%">{IMG_FIRST}</td><td width="20%">{IMG_PREV}</td>
-<td width="20%">{DIR_UP}</a>
-<td width="20%">{IMG_NEXT}</a><td width="20%">{IMG_LAST}</td>
-</tr>
-</table>
-
-<table>
-<tr><td colspan="5"><img src="{IMAGE}"></td></tr>
-<tr><td colspan="5">{LINK}{COMMENT}</td></tr>
-</table>
-</center>
-</body>
-</html>
 _EOF_
-			      link     => q!<a href="{IMG_LINK}">More</a><br>!,
+			      link       => q!<a href="{IMG_LINK}">More</a><br>!,
 			      link_empty => '',
-			      up       => q!<a href="{UP}">Back to<br>Gallery</a>!,
-			      first    => q!<a href="{FIRST}">First<br>Image</a>!,
-			      first_empty => '',
-			      previous => q!<a href="{PREV}">Previous<br>Image</a>!,
+			      up         => q!<a href="{UP_LINK}">{UP_DEFAULT}</a>!,
+			      up_default => q!Back to<br>Gallery!,
+			      first     => q!<a href="{FIRST_LINK}">{FIRST_DEFAULT}</a>!,
+			      first_empty   => '',
+			      first_default => q!First<br>Image!,
+			      first_caption => q!<br>({CAPTION})!,
+			      previous      => q!<a href="{PREVIOUS_LINK}">{PREVIOUS_DEFAULT}</a>!,
 			      previous_empty => '',
-			      next     => q!<a href="{NEXT}">Next<br>Image</a>!,
+			      previous_default => q!Previous<br>Image!,
+			      previous_caption => q!<br>({CAPTION})!,
+			      next     => q!<a href="{NEXT_LINK}">{NEXT_DEFAULT}</a>!,
 			      next_empty => '',
-			      last     => q!<a href="{LAST}">Last<br>Image</a>!,
+			      next_default => q!Next<br>Image!,
+			      next_caption => q!<br>({CAPTION})!,
+			      last     => q!<a href="{LAST_LINK}">{LAST_DEFAULT}</a>!,
 			      last_empty => '',
+			      last_default => q!Last<br>Image!,
+			      last_caption => q!<br>({CAPTION})!,
 			     );
 
     ## set template variables
@@ -752,55 +786,113 @@ _EOF_
 	  warn "Reading image templates from '$tmpl_dir'\n" if $DEBUG;
 
 	  $tmpl->templates($tmpl_dir);
-	  $tmpl->define(main     => "image_main.txt")
+	  $tmpl->define(main       => "image_main.txt")
 	    if -f path($tmpl_dir, "image_main.txt");
+	  $tmpl->define(image_style => "image_style.txt")
+	    if -f path($tmpl_dir, "image_style.txt");
 
-	  $tmpl->define(link     => 'image_link.txt')
+	  $tmpl->define(link       => 'image_link.txt')
 	    if -f path($tmpl_dir, 'image_link.txt');
 	  $tmpl->define(link_empty => 'image_link_empty.txt')
 	    if -f path($tmpl_dir, 'image_link_empty.txt');
 
-	  $tmpl->define(up       => "image_up.txt")
+	  $tmpl->define(up         => "image_up.txt")
 	    if -f path($tmpl_dir, "image_up.txt");
+	  $tmpl->define(up_default => "image_up_default.txt")
+	    if -f path($tmpl_dir, "image_up_default.txt");
 
-	  $tmpl->define(first    => "image_first.txt")
+	  $tmpl->define(first       => "image_first.txt")
 	    if -f path($tmpl_dir, "image_first.txt");
 	  $tmpl->define(first_empty => "image_first_empty.txt")
 	    if -f path($tmpl_dir, "image_first_empty.txt");
+	  $tmpl->define(first_default => "image_first_default.txt")
+	    if -f path($tmpl_dir, "image_first_default.txt");
+	  $tmpl->define(first_caption => "image_first_caption.txt")
+	    if -f path($tmpl_dir, "image_first_caption.txt");
 
 	  $tmpl->define(previous => "image_previous.txt")
 	    if -f path($tmpl_dir, "image_previous.txt");
 	  $tmpl->define(previous_empty => "image_previous_empty.txt")
 	    if -f path($tmpl_dir, "image_previous_empty.txt");
+	  $tmpl->define(previous_default => "image_previous_default.txt")
+	    if -f path($tmpl_dir, "image_previous_default.txt");
+	  $tmpl->define(previous_caption => "image_previous_caption.txt")
+	    if -f path($tmpl_dir, "image_previous_caption.txt");
 
 	  $tmpl->define(next     => "image_next.txt")
 	    if -f path($tmpl_dir, "image_next.txt");
 	  $tmpl->define(next_empty => "image_next_empty.txt")
 	    if -f path($tmpl_dir, "image_next_empty.txt");
+	  $tmpl->define(next_default => "image_next_default.txt")
+	    if -f path($tmpl_dir, "image_next_default.txt");
+	  $tmpl->define(next_caption => "image_next_caption.txt")
+	    if -f path($tmpl_dir, "image_next_caption.txt");
 
 	  $tmpl->define(last     => "image_last.txt")
 	    if -f path($tmpl_dir, "image_last.txt");
 	  $tmpl->define(last_empty => "image_last_empty.txt")
 	    if -f path($tmpl_dir, "image_last_empty.txt");
+	  $tmpl->define(last_default => "image_last_default.txt")
+	    if -f path($tmpl_dir, "image_last_default.txt");
+	  $tmpl->define(last_caption => "image_last_caption.txt")
+	    if -f path($tmpl_dir, "image_last_caption.txt");
       }
 
     ## parse navigation links
-    $tmpl->assign(UP      => $up);
-    $tmpl->parse(DIR_UP   => 'up');
+    $tmpl->assign(UP_LINK   => $up);
+    $tmpl->parse(UP_DEFAULT => 'up_default');
+    $tmpl->parse(DIR_UP     => 'up');
+    $tmpl->parse(IMAGE_STYLE => 'image_style');
 
     if( $link ) { $tmpl->assign(IMG_LINK => $link); $tmpl->parse(LINK => 'link'); }
     else { $tmpl->parse(LINK => 'link_empty'); }
 
-    if( $first ) { $tmpl->assign(FIRST => $first); $tmpl->parse(IMG_FIRST => 'first'); }
+    if( $first ) {
+	$tmpl->assign(FIRST_LINK => $first);
+	$tmpl->assign(FIRST_CAPTION => '');
+	$tmpl->parse(FIRST_DEFAULT => 'first_default');
+	if( my $caption = get_captions( $path, $first ) ) {
+	    $tmpl->assign(CAPTION => $caption);
+	    $tmpl->parse(FIRST_CAPTION => 'first_caption');
+	}
+	$tmpl->parse(IMG_FIRST => 'first');
+    }
     else { $tmpl->parse(IMG_FIRST => 'first_empty'); }
 
-    if( $prev ) { $tmpl->assign(PREV => $prev); $tmpl->parse(IMG_PREV => 'previous'); }
+    if( $prev ) { 
+	$tmpl->assign(PREVIOUS_LINK => $prev);
+	$tmpl->assign(PREVIOUS_CAPTION => '');
+	$tmpl->parse(PREVIOUS_DEFAULT => 'previous_default');
+	if( my $caption = get_captions( $path, $prev ) ) {
+	    $tmpl->assign(CAPTION => $caption);
+	    $tmpl->parse(PREVIOUS_CAPTION => 'previous_caption');
+	}
+	$tmpl->parse(IMG_PREV => 'previous'); 
+    }
     else { $tmpl->parse(IMG_PREV => 'previous_empty'); }
 
-    if( $next ) { $tmpl->assign(NEXT => $next); $tmpl->parse(IMG_NEXT => 'next'); }
+    if( $next ) {
+	$tmpl->assign(NEXT_LINK => $next);
+	$tmpl->assign(NEXT_CAPTION => '');
+	$tmpl->parse(NEXT_DEFAULT => 'next_default');
+	if( my $caption = get_captions( $path, $next ) ) {
+	    $tmpl->assign(CAPTION => $caption);
+	    $tmpl->parse(NEXT_CAPTION => 'next_caption');
+	}
+	$tmpl->parse(IMG_NEXT => 'next');
+    }
     else { $tmpl->parse(IMG_NEXT => 'next_empty'); }
 
-    if( $last ) { $tmpl->assign(LAST => $last); $tmpl->parse(IMG_LAST => 'last'); }
+    if( $last ) {
+	$tmpl->assign(LAST_LINK => $last);
+	$tmpl->assign(LAST_CAPTION => '');
+	$tmpl->parse(LAST_DEFAULT => 'last_default');
+	if( my $caption = get_captions( $path, $last ) ) {
+	    $tmpl->assign(CAPTION => $caption);
+	    $tmpl->parse(LAST_CAPTION => 'last_caption');
+	}
+	$tmpl->parse(IMG_LAST => 'last');
+    }
     else { $tmpl->parse(IMG_LAST => 'last_empty'); }
 
     ## process main
@@ -1034,6 +1126,20 @@ Gallery::Simple automatically tries major language preference if a
 minor language preference fails. For example, if 'en-US' does not
 exist, 'en' will be tried next (and not tried again, even if, for
 example, 'en-UK' were preferred second).
+
+=item B<LanguageStrict>
+
+Default: no
+
+Values: [yes|no]
+
+Description: when disabled, Gallery::Simple will try (for example)
+'en-us' first (assuming 'en-us' were passed in by the browser) and
+then fall back to 'en' (the major language type).
+
+If B<LanguageStrict> is set to 'yes', only languages explicitly passed
+in by the browser will be attempted (e.g., in our above example, 'en'
+would not be tried if 'en-us' were not found).
 
 =item B<ThumbUse>
 
@@ -1296,7 +1402,7 @@ the value assigned depends on the current gallery, the caption file
 and other environmental factors).
 
 You may insert, rearrange, or remove template variables from the
-templates to achieve a new gallery and iamge page look. Please refer
+templates to achieve a new gallery and image page look. Please refer
 to L<Template::Trivial> for more details on how to use templates.
 
 In the sections below we describe the available templates and
@@ -1319,7 +1425,48 @@ Default value:
 
     <html>
     <head>
-    <title>Photo Gallery: {GALLERY_NAME}</title>
+    <title>{GALLERY_NAME}</title>
+    {GALLERY_STYLE}
+    </head>
+    
+    <body>
+    {GALLERY_TITLE}
+    {BREADCRUMBS}
+    {OTHER_GALLERIES}
+    <center>
+    <table width="400">
+    <tr>
+    <td width="25%">{DIR_FIRST}</td><td width="25%">{DIR_PREV}</td>
+    <td width="25%">{DIR_NEXT}</a><td width="25%">{DIR_LAST}</td>
+    </tr>
+    </table>
+    
+    {GALLERY}
+    </center>
+    <hr>
+    <div class="address">
+      <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple</a>
+    </div>
+    </body>
+    </html>
+
+Variables: GALLERY_NAME, GALLERY_TITLE, GALLERY_STYLE, BREADCRUMBS,
+OTHER_GALLERIES, DIR_FIRST, DIR_PREV, DIR_NEXT, DIR_LAST, GALLERY
+
+=item F<gallery_title.txt>
+
+Default value: (empty)
+
+Variables: GALLERY_NAME
+
+=item F<gallery_title_empty.txt>
+
+Default value: (empty)
+
+=item F<gallery_style.txt>
+
+Default value:
+
     <style type="text/css">
     <!--
       body {
@@ -1356,47 +1503,12 @@ Default value:
       }
     //-->
     </style>
-    </head>
-    
-    <body>
-    {GALLERY_TITLE}
-    <p class="breadcrumb">This gallery: {BREADCRUMBS}</p>
-    {OTHER_GALLERIES}
-    <center>
-    <table width="400">
-    <tr>
-    <td width="25%">{DIR_FIRST}</td><td width="25%">{DIR_PREV}</td>
-    <td width="25%">{DIR_NEXT}</a><td width="25%">{DIR_LAST}</td>
-    </tr>
-    </table>
-    
-    {GALLERY}
-    </center>
-    <hr>
-    <div class="address">
-      <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple</a>
-    </div>
-    </body>
-    </html>
-
-Variables: GALLERY_NAME, GALLERY_TITLE, BREADCRUMBS, OTHER_GALLERIES,
-DIR_FIRST, DIR_PREV, DIR_NEXT, DIR_LAST, GALLERY
-
-=item F<gallery_title.txt>
-
-Default value: (empty)
-
-Variables: GALLERY_NAME
-
-=item F<gallery_title_empty.txt>
-
-Default value: (empty)
 
 =item F<gallery_other.txt>
 
 Default value:
 
-    <p class="breadcrumb">Other galleries within this gallery:<br>
+    <p class="galleries">Other galleries within this gallery:<br>
     {DIRECTORIES}</p>
 
 Variables: DIRECTORIES
@@ -1405,15 +1517,21 @@ Variables: DIRECTORIES
 
 Default value:
 
-    <p class="breadcrumb">(No other galleries within this gallery)</p>
+    <p class="galleries">(No other galleries within this gallery)</p>
+
+=item F<gallery_breadcrumbs.txt>
+
+Default value:
+
+    <p class="breadcrumb">This gallery: {BREADCRUMB_PATH}</p>
 
 =item F<gallery_breadcrumb.txt>
 
 Default value:
 
-    &nbsp;<a href="{BREADCRUMBLINK}">{BREADCRUMB}</a>&nbsp;-&gt;
+    &nbsp;<a href="{BREADCRUMB_LINK}">{BREADCRUMB}</a>&nbsp;-&gt;
 
-Variables: BREADCRUMBLINK, BREADCRUMB
+Variables: BREADCRUMB_LINK, BREADCRUMB
 
 =item F<gallery_deadcrumb.txt>
 
@@ -1610,6 +1728,15 @@ rearranged in its respective template.
 
 =over 4
 
+=item BREADCRUMBS
+
+Parsed (F<gallery_breadcrumbs.txt>).
+
+=item BREADCRUMB_PATH
+
+Assigned. The path of directories up to the top level gallery as
+links. The current gallery is not a link.
+
 =item BREADCRUMB
 
 Assigned/parsed (F<gallery_homecrumb.txt>). Part of the top level
@@ -1618,7 +1745,7 @@ each directory name) up to the home directory.  If a higher level
 directory has a caption in the B<caption file>, this caption will be
 used instead.
 
-=item BREADCRUMBLINK
+=item BREADCRUMB_LINK
 
 Assigned. Part of the top level breadcrumb navigation; alternatively
 set to each path component (i.e., each directory name) up to the home
@@ -1665,6 +1792,10 @@ to the current relative URI.
 =item GALLERY_TITLE
 
 Parsed (F<gallery_title.txt>, F<gallery_title_empty.txt>).
+
+=item GALLERY_NAME
+
+Parsed (F<gallery_style.txt>).
 
 =item LAST
 
@@ -1750,6 +1881,33 @@ Default value:
     <html>
     <head>
     <title>{TITLE}</title>
+    {IMAGE_STYLE}
+    </head>
+    <body>
+    <center>
+    <table width="400">
+    <tr align="center" valign="top">
+    <td width="20%">{IMG_FIRST}</td><td width="20%">{IMG_PREV}</td>
+    <td width="20%">{DIR_UP}</a>
+    <td width="20%">{IMG_NEXT}</a><td width="20%">{IMG_LAST}</td>
+    </tr>
+    </table>
+    
+    <table>
+    <tr><td colspan="5"><img src="{IMAGE}"></td></tr>
+    <tr><td colspan="5">{LINK}{COMMENT}</td></tr>
+    </table>
+    </center>
+    </body>
+    </html>
+
+Variables: TITLE, IMG_FIRST, IMG_PREV, DIR_UP, IMG_NEXT, IMG_LAST,
+IMAGE, LINK, COMMENT
+
+=item F<image_style.txt>
+
+Default value:
+
     <style type="text/css">
     <!--
       body {
@@ -1778,27 +1936,6 @@ Default value:
       }
     //-->
     </style>
-    </head>
-    <body>
-    <center>
-    <table width="400">
-    <tr align="center" valign="top">
-    <td width="20%">{IMG_FIRST}</td><td width="20%">{IMG_PREV}</td>
-    <td width="20%">{DIR_UP}</a>
-    <td width="20%">{IMG_NEXT}</a><td width="20%">{IMG_LAST}</td>
-    </tr>
-    </table>
-    
-    <table>
-    <tr><td colspan="5"><img src="{IMAGE}"></td></tr>
-    <tr><td colspan="5">{LINK}{COMMENT}</td></tr>
-    </table>
-    </center>
-    </body>
-    </html>
-
-Variables: TITLE, IMG_FIRST, IMG_PREV, DIR_UP, IMG_NEXT, IMG_LAST,
-IMAGE, LINK, COMMENT
 
 =item F<image_link.txt>
 
@@ -1816,57 +1953,117 @@ Default value: (empty)
 
 Default value:
 
-    <a href="{UP}">Back to<br>Gallery</a>
+    <a href="{UP_LINK}">{UP_DEFAULT}</a>
 
 Variables: UP
+
+=item F<image_up_default.txt>
+
+Default value:
+
+    Back to<br>Gallery
 
 =item F<image_first.txt>
 
 Default value:
 
-    <a href="{FIRST}">First<br>Image</a>
+    <a href="{FIRST_LINK}">{FIRST_DEFAULT}</a>
 
-Variables: FIRST
+Variables: FIRST_LINK, FIRST_DEFAULT, FIRST_CAPTION
 
 =item F<image_first_empty.txt>
 
 Default value: (empty)
 
+=item F<first_default>
+
+Default value:
+
+    First<br>Image
+
+=item F<first_caption>
+
+Default value:
+
+    <br>({CAPTION})
+
+Variables: CAPTION
+
 =item F<image_previous.txt>
 
 Default value:
 
-    <a href="{PREV}">Previous<br>Image</a>
+    <a href="{PREVIOUS_LINK}">{PREVIOUS_DEFAULT}</a>
 
-Variables: PREV
+Variables: PREVIOUS_LINK, PREVIOUS_DEFAULT, PREVIOUS_CAPTION
 
 =item F<image_previous_empty.txt>
 
 Default value: (empty)
 
+=item F<image_previous_default.txt>
+
+Default value:
+
+    Previous<br>Image
+
+=item F<image_previous_caption.txt>
+
+Default value:
+
+    <br>({CAPTION})
+
 =item F<image_next.txt>
 
 Default value:
 
-    <a href="{NEXT}">Next<br>Image</a>
+    <a href="{NEXT_LINK}">{NEXT_DEFAULT}</a>
 
-Variables: NEXT
+Variables: NEXT_LINK, NEXT_DEFAULT, NEXT_CAPTION
 
 =item F<image_next_empty.txt>
 
 Default value: (empty)
 
+=item F<image_next_default.txt>
+
+Default value:
+
+    Next<br>Image
+
+=item F<image_next_caption.txt>
+
+Default value:
+
+    <br>({CAPTION})
+
+Variables: CAPTION
+
 =item F<image_last.txt>
 
 Default value:
 
-    <a href="{LAST}">Last<br>Image</a>
+    <a href="{LAST_LINK}">{LAST_DEFAULT}</a>
 
-Variables: LAST
+Variables: LAST_LINK, LAST_DEFAULT, LAST_CAPTION
 
 =item F<image_last_empty.txt>
 
 Default value: (empty)
+
+=item F<image_last_default.txt>
+
+Default value:
+
+    Last<br>Image
+
+=item F<image_last_caption.txt>
+
+Default value:
+
+    <br>({CAPTION})
+
+Variables: CAPTION
 
 =back
 
@@ -1892,6 +2089,10 @@ rearranged in its respective template.
 Assigned. Set to the image caption; if no caption is available, set
 to the image filename.
 
+=item IMAGE_STYLE
+
+Parsed (F<image_style.txt>).
+
 IMG_FIRST
 
 Parsed (F<image_first.txt>, F<image_first_empty.txt>).
@@ -1899,10 +2100,6 @@ Parsed (F<image_first.txt>, F<image_first_empty.txt>).
 IMG_PREV
 
 Analogous to IMG_FIRST.
-
-DIR_UP
-
-Parsed (F<image_up.txt>).
 
 IMG_NEXT
 
@@ -1916,25 +2113,65 @@ IMG_LINK
 
 Assigned. Set to the link field of the caption file, if applicable.
 
-UP
+DIR_UP
+
+Parsed (F<image_up.txt>).
+
+UP_LINK
 
 Assigned. Set to the parent URI of the current image.
 
-FIRST
+UP_DEFAULT
+
+Parsed (F<image_up_default.txt>).
+
+FIRST_LINK
 
 Assigned. Set to the first image URI in this gallery.
 
-PREV
+FIRST_DEFAULT
 
-Analogous to FIRST
+Parsed (F<image_first_default.txt>).
 
-NEXT
+FIRST_CAPTION
 
-Analogous to FIRST
+Parsed (F<image_first_caption.txt>).
 
-LAST
+PREVIOUS_LINK
 
-Analogous to FIRST
+Analogous to FIRST_LINK
+
+PREVIOUS_DEFAULT
+
+Analogous to FIRST_DEFAULT
+
+PREVIOUS_CAPTION
+
+Analogous to FIRST_CAPTION
+
+NEXT_LINK
+
+Analogous to FIRST_LINK
+
+NEXT_DEFAULT
+
+Analogous to FIRST_DEFAULT
+
+NEXT_CAPTION
+
+Analogous to FIRST_CAPTION
+
+LAST_LINK
+
+Analogous to FIRST_LINK
+
+LAST_DEFAULT
+
+Analogous to FIRST_DEFAULT
+
+LAST_CAPTION
+
+Analogous to FIRST_CAPTION
 
 =back
 
@@ -1970,6 +2207,54 @@ You can also specify multi-language template directories in the same
 manner as caption files: simply name the template directory
 F<.templates.es> (taking Spanish as our example again) for Spanish
 templates.
+
+=head2 Template Changes Required for Multi-language Support
+
+Every effort has been made to make adding additional languages to your
+gallery as painless as possible. To that end, all English text has
+been placed into small sets of small files.
+
+To add Spanish support, for example, you would create F<.templates.es>
+and change the template sets listed below. The default contents of
+these templates may be found elsewhere in this document.
+
+The following B<gallery> templates must be changed for multi-language
+support:
+
+=over 4
+
+=item F<gallery_breadcrumbs.txt>
+
+=item F<gallery_first_default.txt>
+
+=item F<gallery_last_default.txt>
+
+=item F<gallery_next_default.txt>
+
+=item F<gallery_other.txt>
+
+=item F<gallery_other_empty.txt>
+
+=item F<gallery_previous_default.txt>
+
+=back
+
+The following B<image> templates must be changed for multi-language
+support:
+
+=over 4
+
+=item F<image_first_default.txt>
+
+=item F<image_last_default.txt>
+
+=item F<image_next_default.txt>
+
+=item F<image_previous_default.txt>
+
+=item F<image_up_default.txt>
+
+=back
 
 =head1 EXAMPLES
 
@@ -2097,10 +2382,38 @@ B<ThumbsDir> set to) to write thumbnail images into. This means you
 have to 'chmod g+w photos' (or whatever directory that is) so that
 Gallery::Simple can create the thumbnail directory and populate it.
 
+=head2 (Second favorite language) templates show up even though my default is set to English (and I am using the built-in Gallery::Simple templates)
+
+This is the nature of the template system; to ensure that alternative
+templates are not attempted, create English templates in
+F<.templates>--the same templates you used in your second favorite
+language.
+
+Gallery::Simple will detect these templates and use them and not
+attempt to find other templates.
+
+If this seems like a lot of work, you can also simply remove your
+second favorite language from your browser preferences.
+
+If I get enough complaints about this, I'm likely to create an Apache
+directive that will stop at the default templates if they match the
+browser's language preference.
+
+=head2 I don't like you you've done style sheets
+
+I'm happy to receive criticism on my style sheets. I'm just learning
+how they work, so they'll likely contain bad, uh, style. I did put
+them in their own template, though, so they're easy enough to change.
+
+=head2 I don't like the "No other galleries within this gallery" message
+
+Create a F<.templates> directory at your gallery root and create an
+empty file named F<gallery_other_empty.txt>.
+
 =head1 SUPPORT
 
-Additional documentation, template sets, and mailing list available
-at:
+Additional documentation, alternative look template sets, alternative
+language template sets, and mailing list available at:
 
     http://scott.wiersdorf.org/perl/Apache-App-Gallery-Simple/
 
@@ -2149,3 +2462,7 @@ Scott Wiersdorf, <scott@perlcode.org>
 perl(1).
 
 =cut
+
+## todo
+## - if the browser lang pref matches the default gallery lang, stop
+##   looking for alternative languages
