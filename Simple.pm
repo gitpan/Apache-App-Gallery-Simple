@@ -11,7 +11,7 @@ use Template::Trivial;
 use File::Spec;
 
 use vars qw($VERSION);
-$VERSION = '1.04';
+$VERSION = '1.05';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -112,6 +112,9 @@ sub set_defaults {
     $config{'language_strict'} =
       $r->dir_config('LanguageStrict') ||
 	'no';
+    $config{'other_gallery_links'} = 
+      $r->dir_config('OtherGalleryLinks') ||
+	'yes';
     $config{'thumb_use'}     =
       $r->dir_config('ThumbUse')     ||
 	'width';
@@ -150,7 +153,8 @@ sub set_defaults {
 #	'no';
 
     ## cleanup configuration directives
-    $config{'language_strict'} = $config{'language_strict'} =~ /^(?:yes|on|true|1)$/;
+    $config{'language_strict'} = $config{'language_strict'} =~ /^(?:yes|on|true|1)$/i;
+    $config{'other_gallery_links'} = $config{'other_gallery_links'} =~ /^(?:yes|on|true|1)$/i;
 
     $config{'thumb_use'} = lc($config{'thumb_use'});
     unless( $config{'thumb_aspect'} =~ m!^[\d/\.]+$! ) {
@@ -549,7 +553,15 @@ _EOF_
 	    $columns++;
 	    undef $empty_gallery;
 
-	    $tmpl->assign(URI_IMAGE => $file);
+	    ## if caption link is a directory, link directly to it
+	    if( $captions{$file}->[CAP_LINK] && 
+		-d path($path, $dir, $captions{$file}->[CAP_LINK]) ) {
+		$tmpl->assign(URI_IMAGE => $captions{$file}->[CAP_LINK]);
+	    }
+	    ## otherwise, link to the image itself
+	    else {
+		$tmpl->assign(URI_IMAGE => $file);
+	    }
 	    my $uri = $r->uri; my $loc = $r->location;
 	    $uri =~ s/^$loc/$CONFIG{'gallery_root'}/;
 	    warn "URI:         $uri\n" if $DEBUG;
@@ -649,9 +661,14 @@ _EOF_
 	}
     }
 
-    $tmpl->parse(OTHER_GALLERIES => ( $empty_other 
-				      ? 'other_empty' 
-				      : 'other_galleries' ));
+    if( $CONFIG{'other_gallery_links'} ) {
+	$tmpl->parse(OTHER_GALLERIES => ( $empty_other
+					  ? 'other_empty'
+					  : 'other_galleries' ));
+    }
+    else {
+	$tmpl->assign(OTHER_GALLERIES => '');
+    }
     $tmpl->parse(MAIN => 'main');
     $r->print($tmpl->to_string('MAIN'));
 
@@ -1148,6 +1165,17 @@ If B<LanguageStrict> is set to 'yes', only languages explicitly passed
 in by the browser will be attempted (e.g., in our above example, 'en'
 would not be tried if 'en-us' were not found).
 
+=item B<OtherGalleryLinks>
+
+Default: on
+
+Values: [on|off]
+
+Description: when disabled, no "Other galleries" message will display
+showing sub-galleries within this directory. You may still access
+sub-galleries using the F<caption.txt> file (see L<"Sub-Gallery
+Thumbnails"> under L<"CAPTION FILES">).
+
 =item B<ThumbUse>
 
 Default: C<width>
@@ -1282,15 +1310,15 @@ then need to create a file called F<caption.txt> in the same directory
 you uploaded the image to.  The file should contain a line like the
 following:
 
-    picnic.jpg:picnic.mov
+    picnic.jpg:picnic.mov:First Summer Picnic
 
 F<picnic.jpg> is the name of your representative image; F<picnic.mov>
-is your movie file. Now when people browse your gallery, they'll see
-F<picnic.jpg> in the thumbnail gallery. If they click the image,
-they'll be taken to a page that contains a larger version of the image
-(just as a normal image would), but there will also be a link (by
-default, the word "More") beneath the image which links to your
-alternative media file.
+is your movie file (followed by the caption). Now when people browse
+your gallery, they'll see F<picnic.jpg> in the thumbnail gallery. If
+they click the image, they'll be taken to a page that contains a
+larger version of the image (just as a normal image would), but there
+will also be a link (by default, the word "More") beneath the image
+which links to your alternative media file.
 
 For more information about the caption file see L<"CAPTION FILES">. For
 more information about customizing the look of the gallery, see
@@ -1300,13 +1328,13 @@ L<"TEMPLATES">.
 
 The format of a caption file is this:
 
-  imagename:othername:some caption text
+  imagename:linkname:some caption text
 
 I<imagename> is the name of the image (in this directory) that the
-caption relates to. I<imagename> is case-sensitive. I<othername> is
+caption relates to. I<imagename> is case-sensitive. I<linkname> is
 optional.
 
-I<othername> is a link where another media file (such as a Quicktime
+I<linkname> is a link where another media file (such as a Quicktime
 movie or mpeg file) may be found (also in this directory).  Using the
 default templates (see L<"TEMPLATES">), a link "More" will be placed
 below the image on the image page (not in the gallery) indicating that
@@ -1338,13 +1366,13 @@ corresponding caption file:
 =item January
 
 This is a directory within our gallery; this will be treated as a
-"sub-gallery". The 'othername' space is empty ("::") and is currently
+"sub-gallery". The 'linkname' space is empty ("::") and is currently
 not used with sub-galleries. The directory will appear with the link
 "January 2003" instead of just "January".
 
 =item melissa.jpg
 
-This image has no alternative media--the 'othername' space is empty
+This image has no alternative media--the 'linkname' space is empty
 ("::"). This image does have a comment (caption): "Melissa shakes
 hands with Tom".
 
@@ -1365,6 +1393,23 @@ link will appear below this image (not in the gallery, but in the
 image page itself) along with the caption "Joe eating Tabasco sauce".
 
 =back
+
+=head2 Sub-Gallery Thumbnails
+
+Another interesting use for the 'linkname' space is that you can
+create picture representations of sub-galleries. For example, consider
+this entry:
+
+    vacation.png:vacation-2001/:2001 Summer Vacation Photos
+
+When someone clicks the F<vacation.png> thumbnail, they'll be taken
+not to the F<vacation.png> image (if the 'linkname' space did not
+reference a directory), but to a sub-gallery named F<vacation-2001>.
+
+You don't I<need> to do sub-galleries this way, of course. It is done
+automatically for you with links on the left side of the screen under
+"Other galleries", but this provides yet another (graphical) way to
+do it.
 
 =head1 TEMPLATES
 
@@ -2432,6 +2477,23 @@ them in their own template, though, so they're easy enough to change.
 
 Create a F<.templates> directory at your gallery root and create an
 empty file named F<gallery_other_empty.txt>.
+
+=head2 I really don't like the "No other galleries ..." message
+
+Use the B<OtherGalleryLinks> directive to disable all mention of
+sub-galleries (even if they exist).
+
+=head2 Slow!
+
+The first time a gallery is visited, all of the images must be
+"thumbnailed" (a copy of the image is reduced to a smaller size); this
+operation is somewhat slow, especially if you're waiting for it to
+happen in a browser.
+
+Once this thumbnailing has taken place, however, the thumbnails will
+only have to be re-created if you alter the original image in some
+way, in which case Gallery::Simple will detect it and re-thumbnail the
+altered image.
 
 =head1 SUPPORT
 

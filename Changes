@@ -1,6 +1,12 @@
 Revision history for Perl extension Apache::App::Gallery::Simple.
 
 ----------------------------
+revision 1.33 (Release 1.05)
+date: 2004/03/06 06:39:29;  author: scott;  state: Exp;  lines: +80 -18
+- OtherGalleryLinks directive added to disable "Other galleries" links
+- if a linkname field in a caption file refers to a directory, we link
+  directly to it, instead of the representing image
+----------------------------
 revision 1.32 (Release 1.04)
 date: 2004/03/04 01:05:35;  author: scott;  state: Exp;  lines: +1 -2
 - version bump
