@@ -9,9 +9,10 @@ use Apache::Constants qw(DECLINED OK SERVER_ERROR REDIRECT);
 use Image::Magick;
 use Template::Trivial;
 use File::Spec;
+use File::Path qw(rmtree);
 
 use vars qw($VERSION);
-$VERSION = '1.05';
+$VERSION = '1.06';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -234,7 +235,7 @@ _EOF_
   body {
     font-family: Helvetica, sans-serif, Arial;
     font-size: large;
-    color: #F4F4F4;
+    color: #000000;
     background: none;
     margin: 20px;
   }
@@ -257,12 +258,10 @@ _EOF_
   .breadcrumb {
     font-size: x-small;
     background: none;
-    color: #000000;
   }
   .galleries {
     font-size: x-small;
     background: none;
-    color: #000000;
   }
   .address {
     text-align: right;
@@ -468,6 +467,9 @@ _EOF_
     ## get captions for subdirectories
     my %captions = get_captions(path($path, $dir));
 
+    my $thumbpath = path($path, $dir, $CONFIG{'thumb_dir'});
+  SANITARY: { my($tmp) = $thumbpath =~ /^(.*)$/; $thumbpath = $tmp; }
+
     my $empty_gallery = 1;
     my $empty_other   = 1;
     for my $file ( sort { lc($a) cmp lc($b) }
@@ -491,8 +493,8 @@ _EOF_
 	elsif( -f _ ) {
 	    next unless $r->lookup_file($fullpath)->content_type =~ m!^image/!;
 
-	    my $thumbpath = path($path, $dir, $CONFIG{'thumb_dir'});
 	    my $fullthumb = path($thumbpath, thumb($file));
+	  SANITARY: { my($tmp) = $fullthumb =~ /^(.*)$/; $fullthumb = $tmp; }
 	    warn "FULLPATH:  $fullpath\n"  if $DEBUG;
 	    warn "THUMBPATH: $thumbpath\n" if $DEBUG;
 	    warn "FULLTHUMB: $fullthumb\n" if $DEBUG;
@@ -579,6 +581,12 @@ _EOF_
     closedir DIR;
     $tmpl->parse('.ROWS' => 'table_row_bottom');  ## the last tr tag
     $tmpl->parse(GALLERY => ( $empty_gallery ? 'gallery_empty' : 'gallery_table') );
+
+    ## won't be needing the thumbnail directory...
+    TIDY: {
+	  local $ENV{PATH} = '/bin:/sbin:/usr/bin:/usr/sbin'; ## FIXME: any others?
+	  rmtree($thumbpath, 0, 1) if $empty_gallery;
+      }
 
   GET_NAVIGATION: {
 	my @dirs = ();
@@ -956,6 +964,7 @@ sub get_captions {
 	while( my $line = <FILE> ) {
 	    chomp $line;
 	    my($file,$link,$caption) = split(/:/, $line, 3);
+	    next unless $file;
 	    if( $lookup ) {
 		next unless $file eq $lookup;
 		last unless $caption || $link;
@@ -967,7 +976,6 @@ sub get_captions {
 	    }
 	    warn "Setting caption(2) to $caption\n" if $DEBUG;
 	    $captions{$file} = [$link, $caption];
-	      
 	}
 	close FILE;
 	$DEBUG=0;
@@ -2495,6 +2503,44 @@ only have to be re-created if you alter the original image in some
 way, in which case Gallery::Simple will detect it and re-thumbnail the
 altered image.
 
+=head2 I get an error when I update an image and then try to view the gallery
+
+There was a bug in versions prior to 1.06 that triggered Perl's taint
+warning; update Gallery::Simple and all should be well (versions prior
+to 1.03 may have template compatibility issues if you have customized
+templates. If you don't have customized templates, you should not have
+a problem).
+
+=head2 I can't delete the thumbnail directory, or anything in it
+
+This is because your UID is different than your web server's. You have
+some options:
+
+=over 4
+
+=item *
+
+become the UID of the web server (e.g., via 'su' or some other
+mechanism)
+
+=item *
+
+run a CGI script under the UID of the web server that removes the
+directory
+
+=item *
+
+create the thumbnail directory beforehand as your user (too late now,
+of course); then you'll own it and can delete it whenever you want to
+
+=item *
+
+Upgrade to version 1.06 or later of this module. This will cause
+thumbnail directories to be deleted from otherwise empty galleries
+(i.e., galleries with no images)
+
+=back
+
 =head1 SUPPORT
 
 Additional documentation, alternative look template sets, alternative
@@ -2514,7 +2560,9 @@ should be replaced with '&lt;'
 =item *
 
 The thumbnail directory must be writable by the UID that Apache runs
-under (usually I<www> or I<nobody>).
+under (usually I<www> or I<nobody>) in order for thumbnails to be
+written to disk. If the thumbnail directory does not exist, its parent
+directory must also be writable by Apache's UID.
 
 =back
 
