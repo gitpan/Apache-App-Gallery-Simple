@@ -11,7 +11,7 @@ use Template::Trivial;
 use File::Spec;
 
 use vars qw($VERSION);
-$VERSION = '1.03';
+$VERSION = '1.04';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -218,10 +218,7 @@ sub show_gallery {
 
 {GALLERY}
 </center>
-<hr>
-<div class="address">
-  <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple</a>
-</div>
+{GALLERY_FOOTER}
 </body>
 </html>
 _EOF_
@@ -269,6 +266,12 @@ _EOF_
   }
 //-->
 </style>
+_EOF_
+			      gallery_footer   => <<_EOF_,
+<hr>
+<div class="address">
+  <a href="http://scott.wiersdorf.org/perl/Apache-App-Gallery-Simple/">Apache::App::Gallery::Simple {VERSION}</a>
+</div>
 _EOF_
 			      other_galleries  => <<_EOF_,
 <p class="galleries">Other galleries within this gallery:<br>
@@ -330,6 +333,8 @@ _EOF_
 	    if -f path($tmpl_dir, "gallery_title_empty.txt");
 	  $tmpl->define(gallery_style    => "gallery_style.txt")
 	    if -f path($tmpl_dir, "gallery_style.txt");
+	  $tmpl->define(gallery_footer   => "gallery_footer.txt")
+	    if -f path($tmpl_dir, "gallery_footer.txt");
 	  $tmpl->define(other_galleries  => "gallery_other.txt")
 	    if -f path($tmpl_dir, "gallery_other.txt");
 	  $tmpl->define(other_empty      => "gallery_other_empty.txt")
@@ -400,6 +405,8 @@ _EOF_
     $tmpl->assign( GALLERY_NAME    => ($gallery_name ? $gallery_name : $r->uri));
     $tmpl->parse(  GALLERY_TITLE   => ( $gallery_name ? 'gallery_title' : 'gallery_title_empty' ));
     $tmpl->parse(  GALLERY_STYLE   => 'gallery_style');
+    $tmpl->assign( VERSION         => $VERSION );
+    $tmpl->parse(  GALLERY_FOOTER  => 'gallery_footer');
     $tmpl->parse(  ROW_START       => 'table_row_top');
     $tmpl->parse(  ROW_END         => 'table_row_bottom');
     $tmpl->parse(  ROWS            => 'table_row_top');
@@ -1443,10 +1450,7 @@ Default value:
     
     {GALLERY}
     </center>
-    <hr>
-    <div class="address">
-      <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple</a>
-    </div>
+    {GALLERY_FOOTER}
     </body>
     </html>
 
@@ -1503,6 +1507,17 @@ Default value:
       }
     //-->
     </style>
+
+=item F<gallery_footer.txt>
+
+Default value:
+
+    <hr>
+    <div class="address">
+      <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple {VERSION}</a>
+    </div>
+
+Variables: VERSION
 
 =item F<gallery_other.txt>
 
@@ -1796,6 +1811,14 @@ Parsed (F<gallery_title.txt>, F<gallery_title_empty.txt>).
 =item GALLERY_NAME
 
 Parsed (F<gallery_style.txt>).
+
+=item GALLERY_FOOTER
+
+Parsed (F<gallery_footer.txt>).
+
+=item VERSION
+
+Assigned. Set to the current version of Apache::App::Gallery::Simple.
 
 =item LAST
 

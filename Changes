@@ -1,6 +1,18 @@
 Revision history for Perl extension Apache::App::Gallery::Simple.
 
 ----------------------------
+revision 1.32 (Release 1.04)
+date: 2004/03/04 01:05:35;  author: scott;  state: Exp;  lines: +1 -2
+- version bump
+----------------------------
+revision 1.31
+date: 2004/03/04 00:54:24;  author: scott;  state: Exp;  lines: +9 -2
+- add VERSION to footer
+----------------------------
+revision 1.30
+date: 2004/03/04 00:33:24;  author: scott;  state: Exp;  lines: +25 -8
+- split out footer template
+----------------------------
 revision 1.29 (Release 1.03)
 date: 2004/03/03 08:06:39;  author: scott;  state: Exp;  lines: +472 -155
 - new LanguageStrict directive
