@@ -1,6 +1,26 @@
 Revision history for Perl extension Apache::App::Gallery::Simple.
 
 ----------------------------
+revision 1.37 (Release 1.08)
+date: 2004/03/23 06:56:58;  author: scott;  state: Exp;  lines: +1 -1
+- version bump
+----------------------------
+revision 1.36
+date: 2004/03/23 06:56:34;  author: scott;  state: Exp;  lines: +84 -46
+- TEMPLATE CHANGES. The following templates were changed:
+  * image_mov.txt
+  * image_mpeg.txt
+  * image_avi.txt
+- get myself learned about embedding quicktime vids; much better for
+  IE browser (does anyone still use that?)
+- movie links in caption.txt files should also include width and
+  height for correct IE rendering:
+
+    thumb.jpg:movie.mov;320;256:some caption
+
+  The height should add some pixels (16 seems right) so the controls
+  appear completely.
+----------------------------
 revision 1.35 (Release 1.07)
 date: 2004/03/20 04:59:32;  author: scott;  state: Exp;  lines: +300 -131
 - TEMPLATE CHANGES. The following templates were changed:

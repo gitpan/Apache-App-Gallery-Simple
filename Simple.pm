@@ -12,7 +12,7 @@ use File::Spec;
 use File::Path qw(rmtree);
 
 use vars qw($VERSION);
-$VERSION = '1.07';
+$VERSION = '1.08';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -25,6 +25,9 @@ use vars qw(@LANG);
 
 use constant CAP_LINK => 0;
 use constant CAP_TEXT => 1;
+use constant CLINK_F  => 0;  ## link file
+use constant CLINK_W  => 1;  ## link height
+use constant CLINK_H  => 2;  ## link width
 
 sub handler {
     my $r = shift;
@@ -579,13 +582,13 @@ _EOF_
 	    undef $empty_gallery;
 
 	    ## check for a link
-	    if( ! $CONFIG{'always_link'} && $captions{$file}->[CAP_LINK] ) {
-		my $link_path = path($path, $dir, $captions{$file}->[CAP_LINK]);
+	    if( ! $CONFIG{'always_link'} && $captions{$file}->[CAP_LINK]->[CLINK_F] ) {
+		my $link_path = path($path, $dir, $captions{$file}->[CAP_LINK]->[CLINK_F]);
 
 		## a directory or a recognized media type
 		if( -e $link_path && ( -d $link_path ||
 				       $r->lookup_file($link_path)->content_type =~ m!^(?:image|video)/! ) ) {
-		    $tmpl->assign(URI_IMAGE => $captions{$file}->[CAP_LINK]);
+		    $tmpl->assign(URI_IMAGE => $captions{$file}->[CAP_LINK]->[CLINK_F]);
 		}
 
 		## link to the image itself
@@ -723,24 +726,29 @@ sub show_image {
 
 sub show_mov {
     return show_file(@_, 'mov', <<'_MEDIA_');
-<embed src="{MEDIA_FILE}" autostart="true" controller="true" loop="false" pluginspage="http://www.apple.com/quicktime/">
-<noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+<object CLASSID="clsid:02BF25D5-8C17-4B23-BC80-D3488ABDDC6B"{MEDIA_SIZE} CODEBASE="http://www.apple.com/qtactivex/qtplugin.cab#version=6,0,2,0">
+<param NAME="controller" VALUE="TRUE">
+<param NAME="type" VALUE="video/quicktime">
+<param NAME="autoplay" VALUE="true">
+<param NAME="target" VALUE="myself">
+<param NAME="src" VALUE="{MEDIA_FILE}">
+<param NAME="pluginspage" VALUE="http://www.apple.com/quicktime/download/indext.html">
+<embed {MEDIA_SIZE}CONTROLLER="TRUE" TARGET="myself" SRC="{MEDIA_FILE}" AUTOSTART="TRUE" type="video/quicktime" BGCOLOR="#969696" LOOP="FALSE" BORDER="0" PLUGINSPAGE="http://www.apple.com/quicktime/download/indext.html">
 </embed>
+</OBJECT>
 _MEDIA_
 }
 
 sub show_mpeg {
     return show_file(@_, 'mpeg', <<'_MEDIA_');
-<embed src="{MEDIA_FILE}" autostart="true" controller="true" loop="false">
-<noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+<embed {MEDIA_SIZE}CONTROLLER="TRUE" TARGET="myself" SRC="{MEDIA_FILE}" AUTOSTART="TRUE" type="video/mpeg" BGCOLOR="#969696" LOOP="FALSE" BORDER="0">
 </embed>
 _MEDIA_
 }
 
 sub show_avi {
     return show_file(@_, 'avi', <<'_MEDIA_');
-<embed src="{MEDIA_FILE}" autostart="true" controller="true" loop="false">
-<noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+<embed {MEDIA_SIZE}CONTROLLER="TRUE" TARGET="myself" SRC="{MEDIA_FILE}" AUTOSTART="TRUE" type="video/x-msvideo" BGCOLOR="#969696" LOOP="FALSE" BORDER="0">
 </embed>
 _MEDIA_
 }
@@ -900,15 +908,27 @@ _EOF_
 
     ## this is not an image: look it up in the caption file
     my $is_image = 1;
+    $tmpl->assign(MEDIA_SIZE => '');
     unless( $subr->content_type =~ m!^image/! ) {
-	$image = get_captions($path, undef, $image) || $image;
+	## get link dimensions
+	my ($tmp_image, $tmp_link) = get_captions($path, undef, $image);
+
+	if( $tmp_link->[CLINK_W] && $tmp_link->[CLINK_H] ) {
+	    $tmpl->assign(MEDIA_SIZE => q!WIDTH="! . $tmp_link->[CLINK_W] .
+			  q!" HEIGHT="! . $tmp_link->[CLINK_H] . q!" !);
+	}
+
+	$image = $tmp_image || $image;
 	undef $is_image;
     }
 
     ## set template variables
     my($link, $comment) = get_captions($path, $image);
     undef $link unless $is_image;
-    if( $link ) { $tmpl->assign(IMG_LINK => $link); $tmpl->parse(LINK => 'link'); }
+    if( $link->[CLINK_F] ) {
+	$tmpl->assign(IMG_LINK => $link->[CLINK_F]);
+	$tmpl->parse(LINK => 'link');
+    }
     else { $tmpl->parse(LINK => 'link_empty'); }
 
     my $uri = $r->uri; my $loc = $r->location;
@@ -951,7 +971,8 @@ _EOF_
 
 	if( my $first = ( @files && $files[0] eq $image ? '' : $files[0] ) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$first = (get_captions($path, $files[0]))[CAP_LINK] || $first;
+		$first = (get_captions($path, $files[0]))[CAP_LINK]->[CLINK_F] 
+		  || $first;
 	    }
 	    $tmpl->assign(FIRST_LINK => $first);
 	    $tmpl->assign(FIRST_CAPTION => '');
@@ -966,7 +987,8 @@ _EOF_
 
 	if( my $last = (@files && $files[$#files] eq $image ? '' : $files[$#files]) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$last = (get_captions($path, $files[$#files]))[CAP_LINK] || $last;
+		$last = (get_captions($path, $files[$#files]))[CAP_LINK]->[CLINK_F]
+		  || $last;
 	    }
 	    $tmpl->assign(LAST_LINK => $last);
 	    $tmpl->assign(LAST_CAPTION => '');
@@ -984,7 +1006,8 @@ _EOF_
 
 	if( my $prev = ( ($idx-1) < 0 ? '' : $files[$idx-1] ) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$prev = (get_captions($path, $files[$idx-1]))[CAP_LINK] || $prev;
+		$prev = (get_captions($path, $files[$idx-1]))[CAP_LINK]->[CLINK_F]
+		  || $prev;
 	    }
 	    $tmpl->assign(PREVIOUS_LINK => $prev);
 	    $tmpl->assign(PREVIOUS_CAPTION => '');
@@ -999,7 +1022,8 @@ _EOF_
 
 	if( my $next = ( ($idx+1) > $#files ? '' : $files[$idx+1] ) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$next = (get_captions($path, $files[$idx+1]))[CAP_LINK] || $next;
+		$next = (get_captions($path, $files[$idx+1]))[CAP_LINK]->[CLINK_F]
+		  || $next;
 	    }
 	    $tmpl->assign(NEXT_LINK => $next);
 	    $tmpl->assign(NEXT_CAPTION => '');
@@ -1055,13 +1079,18 @@ sub get_captions {
 	    my($file,$link,$caption) = split(/:/, $line, 3);
 	    next unless $file;
 
+	    ## normalize link
+	    $link = ( $link 
+		      ? [split(';',$link)]
+		      : [] );
+
 	    ## looking up $file by $link
-	    if( $lookup_link && $link ) {
-		if( $link eq $lookup_link ) {
+	    if( $lookup_link && $link->[CLINK_F] ) {
+		if( $link->[CLINK_F] eq $lookup_link ) {
 		    $lfile = $file;
+		    $llink = $link;
 		    last;
 		}
-
 		next;
 	    }
 
@@ -1083,7 +1112,7 @@ sub get_captions {
 	$DEBUG=0;
     }
 
-    return $lfile if $lookup_link;
+    return ($lfile, $llink)    if $lookup_link;
     return ($llink, $lcaption) if $lookup;
     return %captions;
 }
@@ -1434,13 +1463,13 @@ then need to create a file called F<caption.txt> in the same directory
 you uploaded the image to.  The file should contain a line like the
 following:
 
-    picnic.jpg:picnic.mov:First Summer Picnic
+    picnic.jpg:picnic.mov;320;255:First Summer Picnic
 
 F<picnic.jpg> is the name of your representative image; F<picnic.mov>
-is your movie file (followed by the caption). Now when people browse
-your gallery, they'll see F<picnic.jpg> in the thumbnail gallery. If
-they click the image, they'll be taken to a page that contains
-F<picnic.mov> as an embedded movie.
+is your movie file (with dimensions), followed by the caption. Now
+when people browse your gallery, they'll see F<picnic.jpg> in the
+thumbnail gallery. If they click the image, they'll be taken to a page
+that contains F<picnic.mov> as an embedded movie.
 
 [If B<AlwaysLink> is enabled, a larger version of the representative
 image is shown, just as a normal image would, but there will also be
@@ -1481,7 +1510,7 @@ and the corresponding caption file:
   January::January 2003
   melissa::Melissa shakes hands with Tom
   jared.jpg::Jared turfs it
-  joe_tabasco.jpg:joe_burns.mov:Joe eating Tabasco sauce
+  joe_tabasco.jpg:joe_burns.mov;320;255:Joe eating Tabasco sauce
 
 We notice the following things about these images and the
 corresponding caption file:
@@ -1517,6 +1546,17 @@ A thumbnail of this image will appear in the gallery (thumbnail) page;
 when the thumbnail link is followed, a page with a movie file
 (F<joe_burns.mov>) will appear along with the caption "Joe eating
 Tabasco sauce".
+
+It is necessary to supply the width and height of the movie (in that
+order) with semicolons in the "link" field of the F<caption.txt> file:
+
+    joe_burns.mov;320;255
+
+This is for correct rendering in Internet Explorer. The height should
+also include (the author has found by experimentation) about a 15
+pixel buffer to show the movie player controls. This may not be enough
+(or too much) for your media player. If you are aware of a better way
+to embed multimedia content in web pages, please contact the author.
 
 =back
 
@@ -2149,34 +2189,28 @@ Variables: MEDIA_FILE
 
 Default value:
 
-    <embed src="{MEDIA_FILE}" autostart="true" controller="true"
-    loop="false" pluginspage="http://www.apple.com/quicktime/">
-    <noembed><a href="{MEDIA_FILE}">Video</a></noembed>
-    </embed>
+<embed {MEDIA_SIZE}CONTROLLER="TRUE" SRC="{MEDIA_FILE}" AUTOSTART="TRUE" type="video/quicktime" BGCOLOR="#969696" LOOP="FALSE" BORDER="0" PLUGINSPAGE="http://www.apple.com/quicktime/download/indext.html">
+</embed>
 
-Variables: MEDIA_FILE
+Variables: MEDIA_FILE, MEDIA_SIZE
 
 =item F<image_mpeg.txt>
 
 Default value:
 
-    <embed src="{MEDIA_FILE}" autostart="true" controller="true"
-    loop="false">
-    <noembed><a href="{MEDIA_FILE}">Video</a></noembed>
-    </embed>
+<embed {MEDIA_SIZE}CONTROLLER="TRUE" SRC="{MEDIA_FILE}" AUTOSTART="true" type="video/mpeg" BGCOLOR="#969696" LOOP="FALSE" BORDER="0">
+</embed>
 
-Variables: MEDIA_FILE
+Variables: MEDIA_FILE, MEDIA_SIZE
 
 =item F<image_avi.txt>
 
 Default value:
 
-    <embed src="{MEDIA_FILE}" autostart="true" controller="true"
-    loop="false">
-    <noembed><a href="{MEDIA_FILE}">Video</a></noembed>
-    </embed>
+<embed {MEDIA_SIZE}CONTROLLER="TRUE" SRC="{MEDIA_FILE}" AUTOSTART="TRUE" type="video/x-msvideo" BGCOLOR="#969696" LOOP="FALSE" BORDER="0">
+</embed>
 
-Variables: MEDIA_FILE
+Variables: MEDIA_FILE, MEDIA_SIZE
 
 =item F<image_link.txt>
 
@@ -2337,6 +2371,11 @@ Parsed (F<image_style.txt>).
 MEDIA_FILE
 
 Assigned. Set to the real URI of the media file.
+
+MEDIA_SIZE
+
+Assigned. Set to the parameters from the F<caption.txt> file. See
+L</Multimedia Content> and L</ALTERNATIVE MEDIA> for details.
 
 IMG_FIRST
 
@@ -2567,14 +2606,13 @@ that would be fine); upload both the movie and image to the gallery
 of your choice. Edit the F<caption.txt> file in that gallery and add
 a line like the following:
 
-    truck.jpg:truck.mov:A video clip of my truck
+    truck.jpg:truck.mov;320;255:A video clip of my truck
 
 F<truck.jpg> will be automatically thumbnailed and used in the
-thumbnail gallery; it will also be used on the image page itself with
-the caption "A video clip of my truck". Below the image and above the
-caption will appear the word "More" (you can override this in the
-F<image_link.txt> template), indicating that there is additional
-media available.
+thumbnail gallery. The thumbnail will link to a page that will play
+F<truck.mov> (the dimensions of the movie are also specified for
+proper rendering in Internet Explorer). The movie will have a caption
+"A video clip of my truck" below it.
 
 =head2 Multilanguage Captions
 
