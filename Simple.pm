@@ -11,7 +11,7 @@ use Template::Trivial;
 use File::Spec;
 
 use vars qw($VERSION);
-$VERSION = '1.00';
+$VERSION = '1.01';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;

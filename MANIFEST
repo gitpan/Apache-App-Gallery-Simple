@@ -1,5 +1,6 @@
 Changes
 MANIFEST
 Makefile.PL
+README
 Simple.pm
 test.pl
