@@ -1,4 +1,4 @@
-Apache::App::Gallery::Simple 1.01
+Apache::App::Gallery::Simple 1.02
 =================================
 
 Gallery::Simple creates navigable thumbnail galleries from directories
@@ -22,6 +22,12 @@ This module requires these other modules and libraries:
 
     Template::Trivial
     Image::Magick
+
+SUPPORT
+
+Limited support and mailing list available at:
+
+    http://scott.wiersdorf.org/perl/Apache-App-Gallery-Simple/
 
 COPYRIGHT AND LICENCE
 

@@ -1,7 +1,13 @@
 Revision history for Perl extension Apache::App::Gallery::Simple.
 
 ----------------------------
-revision 1.27
+revision 1.28 (Release 1.02)
+date: 2004/02/28 23:16:22;  author: scott;  state: Exp;  lines: +57 -24
+- navigation cleanup
+- documentation fixes
+- support and sample links
+----------------------------
+revision 1.27 (Release 1.01)
 date: 2004/02/27 05:30:03;  author: scott;  state: Exp;  lines: +1 -1
 - update version; add README to package
 ----------------------------

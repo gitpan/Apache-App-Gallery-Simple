@@ -11,7 +11,7 @@ use Template::Trivial;
 use File::Spec;
 
 use vars qw($VERSION);
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -561,10 +561,17 @@ _EOF_
 	    $idx++ while $idx < $#dirs && $dirs[$idx] ne $dir;
 	}
 
-	## FIXME: I think some of this can be consolidated
+	## no peer directories? Empty navigation templates
+	unless( scalar(@dirs) ) {
+	    $tmpl->parse(DIR_FIRST => 'first_empty');
+	    $tmpl->parse(DIR_PREV  => 'previous_empty');
+	    $tmpl->parse(DIR_NEXT  => 'next_empty');
+	    $tmpl->parse(DIR_LAST  => 'last_empty');
+	    last GET_NAVIGATION;
+	}
 
 	## parse navigation templates
-	if( !scalar(@dirs) || $dirs[0] eq $dir ) { $tmpl->parse(DIR_FIRST => 'first_empty') }
+	if( $dirs[0] eq $dir ) { $tmpl->parse(DIR_FIRST => 'first_empty') }
 	else { 
 	    $tmpl->assign(FIRST_LINK => "../$dirs[0]/");
 	    $tmpl->assign(FIRST => '' );
@@ -576,7 +583,7 @@ _EOF_
 	    $tmpl->parse(DIR_FIRST => 'first');
 	}
 
-	if( !scalar(@dirs) || ($idx-1) < 0 ) { $tmpl->parse(DIR_PREV => 'previous_empty') }
+	if( ($idx-1) < 0 ) { $tmpl->parse(DIR_PREV => 'previous_empty') }
 	else {
 	    $tmpl->assign(PREV_LINK => "../$dirs[$idx-1]/");
 	    $tmpl->assign(PREV => '');
@@ -588,7 +595,7 @@ _EOF_
 	    $tmpl->parse(DIR_PREV => 'previous');
 	}
 
-	if( !scalar(@dirs) || ($idx+1) > $#dirs ) { $tmpl->parse(DIR_NEXT => 'next_empty') }
+	if( ($idx+1) > $#dirs ) { $tmpl->parse(DIR_NEXT => 'next_empty') }
 	else {
 	    $tmpl->assign(NEXT_LINK => "../$dirs[$idx+1]/");
 	    $tmpl->assign(NEXT => '');
@@ -600,7 +607,7 @@ _EOF_
 	    $tmpl->parse(DIR_NEXT => 'next');
 	}
 
-	if( !scalar(@dirs) || $dirs[$#dirs] eq $dir ) { $tmpl->parse(DIR_LAST => 'last_empty') }
+	if( $dirs[$#dirs] eq $dir ) { $tmpl->parse(DIR_LAST => 'last_empty') }
 	else {
 	    $tmpl->assign(LAST_LINK => "../$dirs[$#dirs]/");
 	    $tmpl->assign(LAST => '');
@@ -613,8 +620,10 @@ _EOF_
 	}
     }
 
-    $tmpl->parse(OTHER_GALLERIES => ( $empty_other ? 'other_empty' : 'other_galleries' ));
-    $tmpl->parse(MAIN    => 'main');
+    $tmpl->parse(OTHER_GALLERIES => ( $empty_other 
+				      ? 'other_empty' 
+				      : 'other_galleries' ));
+    $tmpl->parse(MAIN => 'main');
     $r->print($tmpl->to_string('MAIN'));
 
     return OK;
@@ -960,7 +969,7 @@ Add the following block to your Apache configuration file:
       <Location /gallery>
 	SetHandler perl-script
 	PerlHandler Apache::App::Gallery::Simple
-	PerlSetVar  GalleryRoot  /images
+	PerlSetVar  GalleryRoot  /family/images
         PerlSetVar  GalleryName  "Joe's Photo Gallery"
       </Location>
     </IfModule>
@@ -1195,18 +1204,18 @@ the next newline character) description of this image. Here is a
 sample directory listing:
 
   January
-  PB140005.JPG
-  PB140007.JPG
+  melissa.jpg
+  jared.jpg
   PB140011.JPG
-  PB220012.MOV
-  PB220012.jpg
+  joe_burns.mov
+  joe_tabasco.jpg
 
 and the corresponding caption file:
 
   January::January 2003
-  PB140005.JPG::Melissa shakes hands with Tom
-  PB140007.JPG::Jared turfs it
-  PB220012.jpg:PB220012.MOV:Joe eating Tabasco sauce
+  melissa::Melissa shakes hands with Tom
+  jared.jpg::Jared turfs it
+  joe_tabasco.jpg:joe_burns.mov:Joe eating Tabasco sauce
 
 We notice the following things about these images and the
 corresponding caption file:
@@ -1217,26 +1226,30 @@ corresponding caption file:
 
 This is a directory within our gallery; this will be treated as a
 "sub-gallery". The 'othername' space is empty ("::") and is currently
-not used with sub-galleries.
+not used with sub-galleries. The directory will appear with the link
+"January 2003" instead of just "January".
 
-=item PB140005.JPG
+=item melissa.jpg
 
-This image has no alternative media--the 'othername' space is empty ("::").
+This image has no alternative media--the 'othername' space is empty
+("::"). This image does have a comment (caption): "Melissa shakes
+hands with Tom".
 
-=item PB140007.JPG
+=item jared.jpg
 
-This image is like the previous one: no alternative media.
+This image is like the previous one: no alternative media, but it does
+have a caption.
 
 =item PB140011.JPG
 
 This image is not mentioned in the caption file--no caption will be
 printed for this image.
 
-=item PB220012.jpg
+=item joe_tabasco.jpg
 
-This image has a movie file associated with it (PB220012.MOV); a small
+This image has a movie file associated with it (joe_burns.mov); a small
 link will appear below this image (not in the gallery, but in the
-image page itself) along with the caption "Joe eating".
+image page itself) along with the caption "Joe eating Tabasco sauce".
 
 =back
 
@@ -2059,6 +2072,19 @@ Now web visitors whose browsers are configured to send 'en-uk' as
 their primary language preference will see the correct captions to our
 photos.
 
+=head1 SAMPLES
+
+The following sites run B<Apache::App::Gallery::Simple>; if you want
+yours listed here, contact the author or current maintainer.
+
+=over 4
+
+=item B<Tubbing Foundation of America>
+
+"Photo Album" link at http://www.tubbing.com/
+
+=back
+
 =head1 TROUBLESHOOTING
 
 =head2 The image pages work, but the thumbnail galleries come up with
@@ -2070,6 +2096,13 @@ Gallery::Simple to create a F<.thumbs> directory (or whatever you have
 B<ThumbsDir> set to) to write thumbnail images into. This means you
 have to 'chmod g+w photos' (or whatever directory that is) so that
 Gallery::Simple can create the thumbnail directory and populate it.
+
+=head1 SUPPORT
+
+Additional documentation, template sets, and mailing list available
+at:
+
+    http://scott.wiersdorf.org/perl/Apache-App-Gallery-Simple/
 
 =head1 CAVEATS
 
