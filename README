@@ -1,4 +1,4 @@
-Apache::App::Gallery::Simple 1.06
+Apache::App::Gallery::Simple 1.07
 =================================
 
 Gallery::Simple creates navigable thumbnail galleries from directories
@@ -28,6 +28,15 @@ SUPPORT
 Limited support (templates, docs, mailing list, &c) available at:
 
     http://scott.wiersdorf.org/perl/Apache-App-Gallery-Simple/
+
+UPGRADING
+
+If you are upgrading from a previous version, be sure to check out the
+Changes file for 'TEMPLATE CHANGES' notices. If you have customized
+templates that have changed, you may need to make minor adjustments
+to them for compatibility. The author makes every effort to make only
+forward-compatible changes (i.e., changes that do not add new template
+variables) to existing templates.
 
 COPYRIGHT AND LICENCE
 

@@ -12,7 +12,7 @@ use File::Spec;
 use File::Path qw(rmtree);
 
 use vars qw($VERSION);
-$VERSION = '1.06';
+$VERSION = '1.07';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -72,24 +72,39 @@ sub handler {
 	  if $DEBUG;
 
 	## show this directory
-	return show_gallery($r, $subr->filename);
+	return show_gallery($r, $subr);
     }
 
     elsif( -f _ ) {
 	$r->log_error( "found a regular file at $uri" )
 	  if $DEBUG;
 
-	## pass non-images through
-	unless( $subr->content_type =~ m!^image/! ) {
+	if( $subr->content_type =~ m!^image/! ) {
+	    return show_image($r, $subr);
+	}
+
+	elsif( $subr->content_type =~ m!^video/quicktime! ) {
+	    return show_mov($r, $subr);
+	}
+
+	elsif( $subr->content_type =~ m!^video/mp(?:e|g|eg)! ) {
+	    return show_mpeg($r, $subr);
+	}
+
+	elsif( $subr->content_type =~ m!^video/x-msvideo! ) {
+	    return show_avi($r, $subr);
+	}
+
+	## pass everything else through
+	else {
 	    $r->log_error("Pass through content ($uri)")
 	      if $DEBUG;
 	    return $subr->run;  ## FIXME: Apache book says we could do
-                                ## internal redirect here for efficiency
+		                ## internal redirect here for efficiency
 	}
-
-	return show_file($r, $subr->filename);
     }
 
+    ## not a file or directory
     else {
 	$r->log_error("File or directory not found: " . $r->uri);
 	return DECLINED;
@@ -116,6 +131,9 @@ sub set_defaults {
     $config{'other_gallery_links'} = 
       $r->dir_config('OtherGalleryLinks') ||
 	'yes';
+    $config{'always_link'} = 
+      $r->dir_config('AlwaysLink')   ||
+	'no';
     $config{'thumb_use'}     =
       $r->dir_config('ThumbUse')     ||
 	'width';
@@ -156,6 +174,7 @@ sub set_defaults {
     ## cleanup configuration directives
     $config{'language_strict'} = $config{'language_strict'} =~ /^(?:yes|on|true|1)$/i;
     $config{'other_gallery_links'} = $config{'other_gallery_links'} =~ /^(?:yes|on|true|1)$/i;
+    $config{'always_link'} = $config{'always_link'} =~ /^(?:yes|on|true|1)$/i;
 
     $config{'thumb_use'} = lc($config{'thumb_use'});
     unless( $config{'thumb_aspect'} =~ m!^[\d/\.]+$! ) {
@@ -188,7 +207,8 @@ sub set_defaults {
 
 sub show_gallery {
     my $r    = shift;
-    my ($path, $dir) = shift =~ m!^(.*)/([^/]+)$!;
+    my $subr = shift;
+    my ($path, $dir) = $subr->filename =~ m!^(.*)/([^/]+)$!;
 
     ## need to redirect?
     unless( $r->uri =~ m!/$! ) {
@@ -491,6 +511,9 @@ _EOF_
 
 	## a file
 	elsif( -f _ ) {
+	    ## only images are good enough do display in the thumbnail gallery
+	    ## (however, images may represent other media with the 'link' field
+            ## in the caption.txt file). This algorithm must match image nav
 	    next unless $r->lookup_file($fullpath)->content_type =~ m!^image/!;
 
 	    my $fullthumb = path($thumbpath, thumb($file));
@@ -555,11 +578,22 @@ _EOF_
 	    $columns++;
 	    undef $empty_gallery;
 
-	    ## if caption link is a directory, link directly to it
-	    if( $captions{$file}->[CAP_LINK] && 
-		-d path($path, $dir, $captions{$file}->[CAP_LINK]) ) {
-		$tmpl->assign(URI_IMAGE => $captions{$file}->[CAP_LINK]);
+	    ## check for a link
+	    if( ! $CONFIG{'always_link'} && $captions{$file}->[CAP_LINK] ) {
+		my $link_path = path($path, $dir, $captions{$file}->[CAP_LINK]);
+
+		## a directory or a recognized media type
+		if( -e $link_path && ( -d $link_path ||
+				       $r->lookup_file($link_path)->content_type =~ m!^(?:image|video)/! ) ) {
+		    $tmpl->assign(URI_IMAGE => $captions{$file}->[CAP_LINK]);
+		}
+
+		## link to the image itself
+		else {
+		    $tmpl->assign(URI_IMAGE => $file);
+		}
 	    }
+
 	    ## otherwise, link to the image itself
 	    else {
 		$tmpl->assign(URI_IMAGE => $file);
@@ -683,43 +717,46 @@ _EOF_
     return OK;
 }
 
+sub show_image {
+    return show_file(@_, 'image', q!<img src="{MEDIA_FILE}">!);
+}
+
+sub show_mov {
+    return show_file(@_, 'mov', <<'_MEDIA_');
+<embed src="{MEDIA_FILE}" autostart="true" controller="true" loop="false" pluginspage="http://www.apple.com/quicktime/">
+<noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+</embed>
+_MEDIA_
+}
+
+sub show_mpeg {
+    return show_file(@_, 'mpeg', <<'_MEDIA_');
+<embed src="{MEDIA_FILE}" autostart="true" controller="true" loop="false">
+<noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+</embed>
+_MEDIA_
+}
+
+sub show_avi {
+    return show_file(@_, 'avi', <<'_MEDIA_');
+<embed src="{MEDIA_FILE}" autostart="true" controller="true" loop="false">
+<noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+</embed>
+_MEDIA_
+}
+
 sub show_file {
     my $r    = shift;
-    my ($path, $image) = shift =~ m!^(.*)/([^/]+)$!;
+    my $subr = shift;
+    my ($path, $image) = $subr->filename =~ m!^(.*)/([^/]+)$!;
+    my $mime = shift || 'image';
+  SANITARY: { my($tmp) = $mime =~ /^(.*)$/; $mime = $tmp; }
+    my $media_tmpl = shift || q!<img src="{MEDIA_FILE}">!;
 
     $r->content_type('text/html');
     $r->send_http_header;
     return OK if $r->header_only;
 
-    my $first = '';
-    my $prev  = '';
-    my $next  = '';
-    my $last  = '';
-    my $up    = $r->uri; $up =~ s!^(.*/)[^/]+$!$1!;
-  GET_NAVIGATION: {
-	opendir DIR, $path
-	  or do {
-	      $r->log_error( "Could not open '$path': $!" );
-	      last GET_NAVIGATION;
-	  };
-
-	my @files = ();
-	for my $file ( sort { lc($a) cmp lc($b) } 
-		       grep { ! /^(?:\.|$CONFIG{'thumb_prefix'})/ } 
-		       readdir DIR ) {
-	    my $subr = $r->lookup_file(path($path, $file));
-	    push @files, $file if -f $subr->finfo() && $subr->content_type =~ m!^image/!;
-	}
-	closedir DIR;
-
-	$first = ( @files && $files[0]       eq $image ? '' : $files[0] );
-	$last  = ( @files && $files[$#files] eq $image ? '' : $files[$#files] );
-	my $idx = 0; $idx++ while $idx < $#files && $files[$idx] ne $image;
-	$prev  = ( ($idx-1) < 0       ? '' : $files[$idx-1] );
-	$next  = ( ($idx+1) > $#files ? '' : $files[$idx+1] );
-    }
-
-    my($link, $comment) = get_captions($path, $image);
     my $tmpl = new Template::Trivial;
     $tmpl->define_from_string(main => <<_EOF_,
 <html>
@@ -738,7 +775,7 @@ sub show_file {
 </table>
 
 <table>
-<tr><td colspan="5"><img src="{IMAGE}"></td></tr>
+<tr><td colspan="5">{MEDIA}</td></tr>
 <tr><td colspan="5">{LINK}{COMMENT}</td></tr>
 </table>
 </center>
@@ -752,7 +789,7 @@ _EOF_
     font-family: Helvetica, sans-serif, Arial;
     font-size: large;
     background: none;
-    color: #F4F4F4;
+    color: #000000;
     margin: 20px;
   }
   p {
@@ -761,7 +798,6 @@ _EOF_
   td {
     text-align: center;
     vertical-align: top;
-    color: #000000;
   }
   a {
     color: #BD9977;
@@ -775,6 +811,7 @@ _EOF_
 //-->
 </style>
 _EOF_
+			      media      => $media_tmpl,
 			      link       => q!<a href="{IMG_LINK}">More</a><br>!,
 			      link_empty => '',
 			      up         => q!<a href="{UP_LINK}">{UP_DEFAULT}</a>!,
@@ -797,17 +834,6 @@ _EOF_
 			      last_caption => q!<br>({CAPTION})!,
 			     );
 
-    ## set template variables
-    my $uri = $r->uri; my $loc = $r->location;
-    $uri =~ s/^$loc/$CONFIG{'gallery_root'}/;
-    if( my($userdir) = $r->uri =~ m!~([^/]+)! ) {
-	warn "USERDIR:     $userdir\n" if $DEBUG;
-	$uri = "~$userdir/$uri";
-    }
-    $tmpl->assign(TITLE    => $comment);
-    $tmpl->assign(COMMENT  => $comment);
-    $tmpl->assign(IMAGE    => "/$uri");     ## uri to actual image
-
   TEMPLATE_DIR: for my $tmpl_dir 
       ( grep { -d }
 	map { path($CONFIG{'gallery_path'}, ( $_ 
@@ -823,6 +849,8 @@ _EOF_
 	  $tmpl->define(image_style => "image_style.txt")
 	    if -f path($tmpl_dir, "image_style.txt");
 
+	  $tmpl->define(media      => "image_$mime.txt")
+	    if -f path($tmpl_dir, "image_$mime.txt");
 	  $tmpl->define(link       => 'image_link.txt')
 	    if -f path($tmpl_dir, 'image_link.txt');
 	  $tmpl->define(link_empty => 'image_link_empty.txt')
@@ -870,62 +898,120 @@ _EOF_
 	    if -f path($tmpl_dir, "image_last_caption.txt");
       }
 
+    ## this is not an image: look it up in the caption file
+    my $is_image = 1;
+    unless( $subr->content_type =~ m!^image/! ) {
+	$image = get_captions($path, undef, $image) || $image;
+	undef $is_image;
+    }
+
+    ## set template variables
+    my($link, $comment) = get_captions($path, $image);
+    undef $link unless $is_image;
+    if( $link ) { $tmpl->assign(IMG_LINK => $link); $tmpl->parse(LINK => 'link'); }
+    else { $tmpl->parse(LINK => 'link_empty'); }
+
+    my $uri = $r->uri; my $loc = $r->location;
+    $uri =~ s/^$loc/$CONFIG{'gallery_root'}/;
+    if( my($userdir) = $r->uri =~ m!~([^/]+)! ) {
+	warn "USERDIR:     $userdir\n" if $DEBUG;
+	$uri = "~$userdir/$uri";
+    }
+    $tmpl->assign(TITLE      => $comment);
+    $tmpl->assign(COMMENT    => $comment);
+    $tmpl->assign(MEDIA_FILE => "/$uri");     ## uri to actual media file
+    $tmpl->parse(MEDIA       => 'media');
+
     ## parse navigation links
+    my $up = $r->uri; $up =~ s!^(.*/)[^/]+$!$1!;
     $tmpl->assign(UP_LINK   => $up);
     $tmpl->parse(UP_DEFAULT => 'up_default');
     $tmpl->parse(DIR_UP     => 'up');
     $tmpl->parse(IMAGE_STYLE => 'image_style');
 
-    if( $link ) { $tmpl->assign(IMG_LINK => $link); $tmpl->parse(LINK => 'link'); }
-    else { $tmpl->parse(LINK => 'link_empty'); }
+  GET_NAVIGATION: {
+	opendir DIR, $path
+	  or do {
+	      $r->log_error( "Could not open '$path': $!" );
+	      last GET_NAVIGATION;
+	  };
 
-    if( $first ) {
-	$tmpl->assign(FIRST_LINK => $first);
-	$tmpl->assign(FIRST_CAPTION => '');
-	$tmpl->parse(FIRST_DEFAULT => 'first_default');
-	if( my $caption = get_captions( $path, $first ) ) {
-	    $tmpl->assign(CAPTION => $caption);
-	    $tmpl->parse(FIRST_CAPTION => 'first_caption');
-	}
-	$tmpl->parse(IMG_FIRST => 'first');
-    }
-    else { $tmpl->parse(IMG_FIRST => 'first_empty'); }
+	my @files = ();
+	for my $file ( sort { lc($a) cmp lc($b) } 
+		       grep { ! /^(?:\.|$CONFIG{'thumb_prefix'})/ } 
+		       readdir DIR ) {
 
-    if( $prev ) { 
-	$tmpl->assign(PREVIOUS_LINK => $prev);
-	$tmpl->assign(PREVIOUS_CAPTION => '');
-	$tmpl->parse(PREVIOUS_DEFAULT => 'previous_default');
-	if( my $caption = get_captions( $path, $prev ) ) {
-	    $tmpl->assign(CAPTION => $caption);
-	    $tmpl->parse(PREVIOUS_CAPTION => 'previous_caption');
+	    ## this algorithm must match thumbnail gallery display for
+	    ## gallery and image navigation to stay synchronized
+	    my $subreq = $r->lookup_file(path($path, $file));
+	    push @files, $file
+	      if -f $subreq->finfo() && $subreq->content_type =~ m!^image/!;
 	}
-	$tmpl->parse(IMG_PREV => 'previous'); 
-    }
-    else { $tmpl->parse(IMG_PREV => 'previous_empty'); }
+	closedir DIR;
 
-    if( $next ) {
-	$tmpl->assign(NEXT_LINK => $next);
-	$tmpl->assign(NEXT_CAPTION => '');
-	$tmpl->parse(NEXT_DEFAULT => 'next_default');
-	if( my $caption = get_captions( $path, $next ) ) {
-	    $tmpl->assign(CAPTION => $caption);
-	    $tmpl->parse(NEXT_CAPTION => 'next_caption');
+	if( my $first = ( @files && $files[0] eq $image ? '' : $files[0] ) ) {
+	    unless( $CONFIG{'always_link'} ) {
+		$first = (get_captions($path, $files[0]))[CAP_LINK] || $first;
+	    }
+	    $tmpl->assign(FIRST_LINK => $first);
+	    $tmpl->assign(FIRST_CAPTION => '');
+	    $tmpl->parse(FIRST_DEFAULT => 'first_default');
+	    if( my $caption = get_captions( $path, $first ) ) {
+		$tmpl->assign(CAPTION => $caption);
+		$tmpl->parse(FIRST_CAPTION => 'first_caption');
+	    }
+	    $tmpl->parse(IMG_FIRST => 'first');
 	}
-	$tmpl->parse(IMG_NEXT => 'next');
-    }
-    else { $tmpl->parse(IMG_NEXT => 'next_empty'); }
+	else { $tmpl->parse(IMG_FIRST => 'first_empty'); }
 
-    if( $last ) {
-	$tmpl->assign(LAST_LINK => $last);
-	$tmpl->assign(LAST_CAPTION => '');
-	$tmpl->parse(LAST_DEFAULT => 'last_default');
-	if( my $caption = get_captions( $path, $last ) ) {
-	    $tmpl->assign(CAPTION => $caption);
-	    $tmpl->parse(LAST_CAPTION => 'last_caption');
+	if( my $last = (@files && $files[$#files] eq $image ? '' : $files[$#files]) ) {
+	    unless( $CONFIG{'always_link'} ) {
+		$last = (get_captions($path, $files[$#files]))[CAP_LINK] || $last;
+	    }
+	    $tmpl->assign(LAST_LINK => $last);
+	    $tmpl->assign(LAST_CAPTION => '');
+	    $tmpl->parse(LAST_DEFAULT => 'last_default');
+	    if( my $caption = get_captions( $path, $last ) ) {
+		$tmpl->assign(CAPTION => $caption);
+		$tmpl->parse(LAST_CAPTION => 'last_caption');
+	    }
+	    $tmpl->parse(IMG_LAST => 'last');
 	}
-	$tmpl->parse(IMG_LAST => 'last');
+	else { $tmpl->parse(IMG_LAST => 'last_empty'); }
+
+	## $idx is required for $prev and $next calculations
+	my $idx = 0; $idx++ while $idx < $#files && $files[$idx] ne $image;
+
+	if( my $prev = ( ($idx-1) < 0 ? '' : $files[$idx-1] ) ) {
+	    unless( $CONFIG{'always_link'} ) {
+		$prev = (get_captions($path, $files[$idx-1]))[CAP_LINK] || $prev;
+	    }
+	    $tmpl->assign(PREVIOUS_LINK => $prev);
+	    $tmpl->assign(PREVIOUS_CAPTION => '');
+	    $tmpl->parse(PREVIOUS_DEFAULT => 'previous_default');
+	    if( my $caption = get_captions( $path, $prev ) ) {
+		$tmpl->assign(CAPTION => $caption);
+		$tmpl->parse(PREVIOUS_CAPTION => 'previous_caption');
+	    }
+	    $tmpl->parse(IMG_PREV => 'previous'); 
+	}
+	else { $tmpl->parse(IMG_PREV => 'previous_empty'); }
+
+	if( my $next = ( ($idx+1) > $#files ? '' : $files[$idx+1] ) ) {
+	    unless( $CONFIG{'always_link'} ) {
+		$next = (get_captions($path, $files[$idx+1]))[CAP_LINK] || $next;
+	    }
+	    $tmpl->assign(NEXT_LINK => $next);
+	    $tmpl->assign(NEXT_CAPTION => '');
+	    $tmpl->parse(NEXT_DEFAULT => 'next_default');
+	    if( my $caption = get_captions( $path, $next ) ) {
+		$tmpl->assign(CAPTION => $caption);
+		$tmpl->parse(NEXT_CAPTION => 'next_caption');
+	    }
+	    $tmpl->parse(IMG_NEXT => 'next');
+	}
+	else { $tmpl->parse(IMG_NEXT => 'next_empty'); }
     }
-    else { $tmpl->parse(IMG_LAST => 'last_empty'); }
 
     ## process main
     $tmpl->parse(MAIN => 'main');
@@ -935,11 +1021,14 @@ _EOF_
 }
 
 sub get_captions {
-    my $path   = shift;
-    my $lookup = shift;
+    my $path        = shift;
+    my $lookup      = shift;
+    my $lookup_link = shift;
+
     my %captions = ();
-    my $lcaption = '';
+    my $lfile    = '';
     my $llink    = '';
+    my $lcaption = '';
 
     ## special case for gallery root in scalar context (I used to have
     ## !wantarray in here instead of "defined $lookup")
@@ -947,9 +1036,9 @@ sub get_captions {
 	return ( $CONFIG{'gallery_name'} ? $CONFIG{'gallery_name'} : $lcaption );
     }
 
-  CAPTIONS: for my $caption_file ( map { path($path, ( $_ 
-						       ? $CONFIG{'caption_file'} . ".$_" 
-						       : $CONFIG{'caption_file'} ) ) }
+  CAPTIONS: for my $caption_file ( map { path($path, ($_ 
+						      ? $CONFIG{'caption_file'} . ".$_"
+						      : $CONFIG{'caption_file'}) ) }
 				   reverse @LANG ) {
 
 	$DEBUG=0;
@@ -965,6 +1054,18 @@ sub get_captions {
 	    chomp $line;
 	    my($file,$link,$caption) = split(/:/, $line, 3);
 	    next unless $file;
+
+	    ## looking up $file by $link
+	    if( $lookup_link && $link ) {
+		if( $link eq $lookup_link ) {
+		    $lfile = $file;
+		    last;
+		}
+
+		next;
+	    }
+
+	    ## looking up $caption or $link by $file
 	    if( $lookup ) {
 		next unless $file eq $lookup;
 		last unless $caption || $link;
@@ -974,6 +1075,7 @@ sub get_captions {
 		$llink    = $link;
 		last;
 	    }
+
 	    warn "Setting caption(2) to $caption\n" if $DEBUG;
 	    $captions{$file} = [$link, $caption];
 	}
@@ -981,7 +1083,9 @@ sub get_captions {
 	$DEBUG=0;
     }
 
-    return ( $lookup ? ($llink, $lcaption) : %captions );
+    return $lfile if $lookup_link;
+    return ($llink, $lcaption) if $lookup;
+    return %captions;
 }
 
 sub path  { return File::Spec->canonpath(File::Spec->catfile(grep $_, @_)) }
@@ -1013,12 +1117,12 @@ Apache::App::Gallery::Simple - Elegant and fast filesystem-based image galleries
 
 =head1 DESCRIPTION
 
-Briefly: B<Gallery::Simple> creates navigable thumbnail galleries from
+B<Gallery::Simple> creates navigable thumbnail galleries from
 directories with images on your web server. B<Gallery::Simple> is
 completely configurable via a simple template system, allows for image
 captions as well as multimedia support, and also allows you to specify
 multiple languages for your templates and captions. The rest of this
-document is just details.
+document is just the details.
 
 B<Gallery::Simple> creates an image gallery (complete with thumbnails
 and navigation links) from a directory or directory hierarchy on a web
@@ -1184,6 +1288,18 @@ showing sub-galleries within this directory. You may still access
 sub-galleries using the F<caption.txt> file (see L<"Sub-Gallery
 Thumbnails"> under L<"CAPTION FILES">).
 
+=item B<AlwaysLink>
+
+Default: no
+
+Values: [yes|no]
+
+Description: when enabled, non-image media files (e.g., movies, etc.)
+will simply appear as a link below the image on the representative
+image page. When disabled, thumbnails and image navigation links will
+load a page with the multimedia file embedded (as if it were an
+image).
+
 =item B<ThumbUse>
 
 Default: C<width>
@@ -1311,7 +1427,7 @@ gallery, too, as long as you have an image to represent it. Upload
 your non-image media just as you would an image. Additionally, you'll
 need to upload an image that represents your media. For example, if
 your alternative media were a movie, you might take a screen capture
-of it and use that as your image.
+of it and use that as your representative image.
 
 Once you've uploaded the media file and a representative image, you'll
 then need to create a file called F<caption.txt> in the same directory
@@ -1323,10 +1439,12 @@ following:
 F<picnic.jpg> is the name of your representative image; F<picnic.mov>
 is your movie file (followed by the caption). Now when people browse
 your gallery, they'll see F<picnic.jpg> in the thumbnail gallery. If
-they click the image, they'll be taken to a page that contains a
-larger version of the image (just as a normal image would), but there
-will also be a link (by default, the word "More") beneath the image
-which links to your alternative media file.
+they click the image, they'll be taken to a page that contains
+F<picnic.mov> as an embedded movie.
+
+[If B<AlwaysLink> is enabled, a larger version of the representative
+image is shown, just as a normal image would, but there will also be
+a link beneath the image which links to the alternative media file.]
 
 For more information about the caption file see L<"CAPTION FILES">. For
 more information about customizing the look of the gallery, see
@@ -1343,10 +1461,9 @@ caption relates to. I<imagename> is case-sensitive. I<linkname> is
 optional.
 
 I<linkname> is a link where another media file (such as a Quicktime
-movie or mpeg file) may be found (also in this directory).  Using the
-default templates (see L<"TEMPLATES">), a link "More" will be placed
-below the image on the image page (not in the gallery) indicating that
-additional media is available.
+movie, mpeg file, or even a sub-directory) may be found (the file or
+directory must be in the same directory as the caption.txt file it is
+referenced in).
 
 The final field is where you can put a brief (or long--it goes until
 the next newline character) description of this image. Here is a
@@ -1396,9 +1513,10 @@ printed for this image.
 
 =item joe_tabasco.jpg
 
-This image has a movie file associated with it (joe_burns.mov); a small
-link will appear below this image (not in the gallery, but in the
-image page itself) along with the caption "Joe eating Tabasco sauce".
+A thumbnail of this image will appear in the gallery (thumbnail) page;
+when the thumbnail link is followed, a page with a movie file
+(F<joe_burns.mov>) will appear along with the caption "Joe eating
+Tabasco sauce".
 
 =back
 
@@ -1529,7 +1647,7 @@ Default value:
       body {
 	font-family: Helvetica, sans-serif, Arial;
 	font-size: large;
-	color: #F4F4F4;
+	color: #000000;
 	background: none;
 	margin: 20px;
       }
@@ -1552,7 +1670,10 @@ Default value:
       .breadcrumb {
 	font-size: x-small;
 	background: none;
-	color: #000000;
+      }
+      .galleries {
+        font-size: x-small;
+        background: none;
       }
       .address {
 	text-align: right;
@@ -1567,7 +1688,7 @@ Default value:
 
     <hr>
     <div class="address">
-      <a href="http://scott.wiersdorf.org/perl/">Apache::App::Gallery::Simple {VERSION}</a>
+      <a href="http://scott.wiersdorf.org/perl/Apache-App-Gallery-Simple/">Apache::App::Gallery::Simple {VERSION}</a>
     </div>
 
 Variables: VERSION
@@ -1970,7 +2091,7 @@ Default value:
     </table>
     
     <table>
-    <tr><td colspan="5"><img src="{IMAGE}"></td></tr>
+    <tr><td colspan="5">{MEDIA}</td></tr>
     <tr><td colspan="5">{LINK}{COMMENT}</td></tr>
     </table>
     </center>
@@ -1978,7 +2099,11 @@ Default value:
     </html>
 
 Variables: TITLE, IMG_FIRST, IMG_PREV, DIR_UP, IMG_NEXT, IMG_LAST,
-IMAGE, LINK, COMMENT
+MEDIA, LINK, COMMENT
+
+=item F<image_media.txt>
+
+FIXME
 
 =item F<image_style.txt>
 
@@ -1990,7 +2115,7 @@ Default value:
 	font-family: Helvetica, sans-serif, Arial;
 	font-size: large;
 	background: none;
-	color: #F4F4F4;
+	color: #000000;
 	margin: 20px;
       }
       p {
@@ -1999,7 +2124,6 @@ Default value:
       td {
 	text-align: center;
 	vertical-align: top;
-	color: #000000;
       }
       a {
 	color: #BD9977;
@@ -2012,6 +2136,47 @@ Default value:
       }
     //-->
     </style>
+
+=item F<image_image.txt>
+
+Default value:
+
+    <img src="{MEDIA_FILE}">
+
+Variables: MEDIA_FILE
+
+=item F<image_mov.txt>
+
+Default value:
+
+    <embed src="{MEDIA_FILE}" autostart="true" controller="true"
+    loop="false" pluginspage="http://www.apple.com/quicktime/">
+    <noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+    </embed>
+
+Variables: MEDIA_FILE
+
+=item F<image_mpeg.txt>
+
+Default value:
+
+    <embed src="{MEDIA_FILE}" autostart="true" controller="true"
+    loop="false">
+    <noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+    </embed>
+
+Variables: MEDIA_FILE
+
+=item F<image_avi.txt>
+
+Default value:
+
+    <embed src="{MEDIA_FILE}" autostart="true" controller="true"
+    loop="false">
+    <noembed><a href="{MEDIA_FILE}">Video</a></noembed>
+    </embed>
+
+Variables: MEDIA_FILE
 
 =item F<image_link.txt>
 
@@ -2168,6 +2333,10 @@ to the image filename.
 =item IMAGE_STYLE
 
 Parsed (F<image_style.txt>).
+
+MEDIA_FILE
+
+Assigned. Set to the real URI of the media file.
 
 IMG_FIRST
 
