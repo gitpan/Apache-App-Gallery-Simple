@@ -1,6 +1,18 @@
 Revision history for Perl extension Apache::App::Gallery::Simple.
 
 ----------------------------
+revision 1.40 (Release 1.09)
+date: 2004/03/24 04:44:53;  author: scott;  state: Exp;  lines: +1 -1
+- version bump
+----------------------------
+revision 1.39
+date: 2004/03/24 04:44:19;  author: scott;  state: Exp;  lines: +12 -4
+- fix previous fix
+----------------------------
+revision 1.38
+date: 2004/03/24 04:36:03;  author: scott;  state: Exp;  lines: +9 -9
+- fix bug where spaces in filename caused parse error
+----------------------------
 revision 1.37 (Release 1.08)
 date: 2004/03/23 06:56:58;  author: scott;  state: Exp;  lines: +1 -1
 - version bump

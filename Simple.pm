@@ -12,7 +12,7 @@ use File::Spec;
 use File::Path qw(rmtree);
 
 use vars qw($VERSION);
-$VERSION = '1.08';
+$VERSION = '1.09';
 
 use vars qw($DEBUG);
 $DEBUG   = 0;
@@ -925,7 +925,7 @@ _EOF_
     ## set template variables
     my($link, $comment) = get_captions($path, $image);
     undef $link unless $is_image;
-    if( $link->[CLINK_F] ) {
+    if( $link && $link->[CLINK_F] ) {
 	$tmpl->assign(IMG_LINK => $link->[CLINK_F]);
 	$tmpl->parse(LINK => 'link');
     }
@@ -971,8 +971,10 @@ _EOF_
 
 	if( my $first = ( @files && $files[0] eq $image ? '' : $files[0] ) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$first = (get_captions($path, $files[0]))[CAP_LINK]->[CLINK_F] 
-		  || $first;
+		my $link = (get_captions($path, $files[0]))[CAP_LINK];
+		$first = ($link && $link->[CLINK_F] 
+			  ? $link->[CLINK_F] 
+			  : $first);
 	    }
 	    $tmpl->assign(FIRST_LINK => $first);
 	    $tmpl->assign(FIRST_CAPTION => '');
@@ -987,8 +989,10 @@ _EOF_
 
 	if( my $last = (@files && $files[$#files] eq $image ? '' : $files[$#files]) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$last = (get_captions($path, $files[$#files]))[CAP_LINK]->[CLINK_F]
-		  || $last;
+		my $link = (get_captions($path, $files[$#files]))[CAP_LINK];
+		$last = ($link && $link->[CLINK_F]
+			 ? $link->[CLINK_F] 
+			 : $last);
 	    }
 	    $tmpl->assign(LAST_LINK => $last);
 	    $tmpl->assign(LAST_CAPTION => '');
@@ -1006,8 +1010,10 @@ _EOF_
 
 	if( my $prev = ( ($idx-1) < 0 ? '' : $files[$idx-1] ) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$prev = (get_captions($path, $files[$idx-1]))[CAP_LINK]->[CLINK_F]
-		  || $prev;
+		my $link = (get_captions($path, $files[$idx-1]))[CAP_LINK];
+		$prev = ($link && $link->[CLINK_F]
+			 ? $link->[CLINK_F] 
+			 : $prev);
 	    }
 	    $tmpl->assign(PREVIOUS_LINK => $prev);
 	    $tmpl->assign(PREVIOUS_CAPTION => '');
@@ -1022,8 +1028,10 @@ _EOF_
 
 	if( my $next = ( ($idx+1) > $#files ? '' : $files[$idx+1] ) ) {
 	    unless( $CONFIG{'always_link'} ) {
-		$next = (get_captions($path, $files[$idx+1]))[CAP_LINK]->[CLINK_F]
-		  || $next;
+		my $link = (get_captions($path, $files[$idx+1]))[CAP_LINK];
+		$next = ($link && $link->[CLINK_F]
+			 ? $link->[CLINK_F] 
+			 : $next);
 	    }
 	    $tmpl->assign(NEXT_LINK => $next);
 	    $tmpl->assign(NEXT_CAPTION => '');

@@ -1,4 +1,4 @@
-Apache::App::Gallery::Simple 1.08
+Apache::App::Gallery::Simple 1.09
 =================================
 
 Gallery::Simple creates navigable thumbnail galleries from directories
@@ -22,6 +22,22 @@ This module requires these other modules and libraries:
 
     Template::Trivial
     Image::Magick
+
+USAGE
+
+    <IfModule mod_perl.c>
+      PerlWarn       On
+      PerlTaintCheck On
+
+      <Location /photos>
+        SetHandler perl-script
+        PerlHandler Apache::App::Gallery::Simple
+
+        ## GalleryRoot is relative to DocumentRoot
+        PerlSetVar  GalleryRoot dog/images
+        PerlSetVar  GalleryName "My Dog's Photo Album"
+      </Location>
+  </IfModule>
 
 SUPPORT
 
